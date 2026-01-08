@@ -1,0 +1,19 @@
+[project]
+name = "gorilla-tsc-py"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Bryan Lott", email = "bryan.lott@pm.me" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hypothesis>=6.0.0"
+]
+
+[project.scripts]
+gorilla-tsc-py = "gorilla_tsc_py:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
