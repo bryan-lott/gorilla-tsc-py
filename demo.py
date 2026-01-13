@@ -81,6 +81,75 @@ ts_decoded = ts_decoder.decode_all()
 print(f"Decoded: {ts_decoded}")
 print(f"Match: {timestamps == ts_decoded}\n")
 
+# Values example with DoD (identical values for lossless demo)
+values_dod = [1.0, 1.0]
+print(
+    "Detailed Encoding/Decoding for Values [1.0, 1.0] in DoD mode (shows zig-zag on delta=0):"
+)
+encoder_dod = ValuesEncoder(
+    mode="dod", precision="f64", checkpoint_interval=100, debug=True
+)
+result_dod = encoder_dod.encode_all(values_dod)
+dod_encoded_bin = "".join(format(byte, "08b") for byte in result_dod["encoded"])
+dod_uncompressed_bits = len(values_dod) * 64
+dod_compressed_bits = len(result_dod["encoded"]) * 8
+print(f"Encoded bytes: {result_dod['encoded']} (binary: {dod_encoded_bin})")
+print(
+    f"Compression: Original {dod_uncompressed_bits} bits → Stored {dod_compressed_bits} bits"
+)
+print()
+
+decoder_dod = ValuesDecoder(result_dod, debug=True)
+decoded_dod = decoder_dod.decode_all()
+print(f"Decoded: {decoded_dod}")
+print(f"Match: {values_dod == decoded_dod}\n")
+
+# Values example with XOR_DoD (linear data)
+values_xor_dod = [1.0, 2.0, 3.0]
+print(
+    "Detailed Encoding/Decoding for Values [1.0, 2.0, 3.0] in XOR_DoD mode (DoD first, then XOR):"
+)
+encoder_xor_dod = ValuesEncoder(
+    mode="xor_dod", precision="f64", checkpoint_interval=100, debug=True
+)
+result_xor_dod = encoder_xor_dod.encode_all(values_xor_dod)
+xor_dod_encoded_bin = "".join(format(byte, "08b") for byte in result_xor_dod["encoded"])
+xor_dod_uncompressed_bits = len(values_xor_dod) * 64
+xor_dod_compressed_bits = len(result_xor_dod["encoded"]) * 8
+print(f"Encoded bytes: {result_xor_dod['encoded']} (binary: {xor_dod_encoded_bin})")
+print(
+    f"Compression: Original {xor_dod_uncompressed_bits} bits → Stored {xor_dod_compressed_bits} bits"
+)
+print()
+
+decoder_xor_dod = ValuesDecoder(result_xor_dod, debug=True)
+decoded_xor_dod = decoder_xor_dod.decode_all()
+print(f"Decoded: {decoded_xor_dod}")
+print(f"Match: {values_xor_dod == decoded_xor_dod}\n")
+
+# Values example with DoD_XOR (oscillating data)
+values_dod_xor = [1.0, 0.9, 1.0]
+print(
+    "Detailed Encoding/Decoding for Values [1.0, 0.9, 1.0] in DoD_XOR mode (XOR first, then DoD):"
+)
+encoder_dod_xor = ValuesEncoder(
+    mode="dod_xor", precision="f64", checkpoint_interval=100, debug=True
+)
+result_dod_xor = encoder_dod_xor.encode_all(values_dod_xor)
+dod_xor_encoded_bin = "".join(format(byte, "08b") for byte in result_dod_xor["encoded"])
+dod_xor_uncompressed_bits = len(values_dod_xor) * 64
+dod_xor_compressed_bits = len(result_dod_xor["encoded"]) * 8
+print(f"Encoded bytes: {result_dod_xor['encoded']} (binary: {dod_xor_encoded_bin})")
+print(
+    f"Compression: Original {dod_xor_uncompressed_bits} bits → Stored {dod_xor_compressed_bits} bits"
+)
+print()
+
+decoder_dod_xor = ValuesDecoder(result_dod_xor, debug=True)
+decoded_dod_xor = decoder_dod_xor.decode_all()
+print(f"Decoded: {decoded_dod_xor}")
+print(f"Match: {values_dod_xor == decoded_dod_xor}\n")
+
 # Section 2: Error Handling and Edge Cases (Proves Robustness)
 print("2. Error Handling and Edge Cases (Handles Real-World Inputs)")
 try:

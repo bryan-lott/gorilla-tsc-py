@@ -90,12 +90,14 @@ stats = estimate_val_compression(val_data, mode='xor', precision='f64')
 # {'ratio': ~5.0, 'compressed_size': 160, 'bits_per_item': 12.8}
 ```
 
-## Choosing XOR vs. DoD for Values
+## Choosing Compression Modes for Values
 
-- **XOR**: Best for floating-point data with irregular patterns (e.g., sensor noise, varying exponents). Exploits bit-level similarities for higher compression (5-10x). Default choice.
-- **DoD**: Simpler arithmetic differencing. Best for predictable trends or integer-like floats. May compress worse (2-7x) for noisy data, but useful for simplicity or when XOR overhead is unwanted.
+- **XOR** (default): Best for floating-point data with irregular patterns (e.g., sensor noise, varying exponents). Exploits bit-level similarities for higher compression (5-10x) on noisy data.
+- **DoD**: Simpler arithmetic differencing. Best for predictable trends or integer-like floats. May compress worse (2-7x) for noisy data, but useful for simplicity.
+- **XOR_DoD** (XOR on DoD): Apply DoD first, then XOR on deltas. Excels on trending data with small changes (can achieve 15-20x compression). Use for counters or linear series.
+- **DoD_XOR** (DoD on XOR): Apply XOR first, then DoD on XOR results. Excels on data with bit similarities and some trends (up to 30-40x). Use for mixed/irregular data with underlying patterns.
 
-Use `estimate_val_compression` with different modes on your data to compare.
+**Guidance**: Test modes on sample data using `estimate_val_compression`. For noisy sensors, try XOR or DoD_XOR. For smooth trends, try DoD or XOR_DoD.
 
 ### Real-World Use Cases
 

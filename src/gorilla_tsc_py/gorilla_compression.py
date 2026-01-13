@@ -318,8 +318,8 @@ class ValuesEncoder:
     ):
         if precision not in ("f32", "f64"):
             raise ValueError("Precision must be 'f32' or 'f64'")
-        if mode not in ("xor", "dod"):
-            raise ValueError("Mode must be 'xor' or 'dod'")
+        if mode not in ("xor", "dod", "xor_dod", "dod_xor"):
+            raise ValueError("Mode must be 'xor', 'dod', 'xor_dod', or 'dod_xor'")
         if checkpoint_interval < 1:
             raise ValueError("Checkpoint interval must be >= 1")
         self.precision = precision
@@ -328,6 +328,7 @@ class ValuesEncoder:
         self.bitstream = BitStream()
         self.prev_val = None
         self.prev_delta = None
+        self.prev_xor = None  # For stacked modes
         self.prev_lz = 0
         self.prev_tz = 0
         self.prev_len = 1  # dummy
@@ -428,7 +429,7 @@ class ValuesEncoder:
                         f"  XOR with prev: {xor_val} (full: {xor_bin}) - meaningful bits stored: {meaningful_start} (skips leading zeros)"
                     )
                 self._write_xor(xor_val)
-            else:  # dod
+            elif self.mode == "dod":
                 delta = packed - self.prev_val
                 if self.debug:
                     delta_bin = (
@@ -467,6 +468,55 @@ class ValuesEncoder:
                         zz_delta & ((1 << bits_delta) - 1), bits_delta
                     )
                 self.prev_delta = delta
+            elif self.mode == "xor_dod":
+                # DoD first, then XOR on deltas
+                delta = packed - self.prev_val
+                if self.prev_delta is not None:
+                    xor_val = delta ^ self.prev_delta
+                    if self.debug:
+                        xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
+                        logger.debug(
+                            f"  XOR on DoD: {xor_val} - meaningful: {xor_bin} (skips leading zeros)"
+                        )
+                    self._write_xor(xor_val)
+                else:
+                    # First delta, write full
+                    bits_delta = 32 if self.precision == "f64" else 16
+                    zz_delta = zigzag_encode(delta)
+                    if self.debug:
+                        zz_bin = format(zz_delta, f"0{bits_delta}b").lstrip("0") or "0"
+                        logger.debug(
+                            f"  Full delta zig-zag: {zz_delta} - meaningful: {zz_bin}"
+                        )
+                    self.bitstream.write_bits(
+                        zz_delta & ((1 << bits_delta) - 1), bits_delta
+                    )
+                self.prev_delta = delta
+            elif self.mode == "dod_xor":
+                # XOR first, then DoD on XORs
+                xor_val = packed ^ self.prev_val
+                if self.prev_xor is not None:
+                    dod = xor_val - self.prev_xor
+                    if self.debug:
+                        dod_bin = (
+                            format(abs(dod), f"0{bits}b")
+                            if dod >= 0
+                            else format((1 << bits) + dod, f"0{bits}b")
+                        )
+                        logger.debug(
+                            f"  DoD on XOR: {dod} (binary: {dod_bin}) - variable bits stored"
+                        )
+                        zz_dod = zigzag_encode(dod)
+                        zz_bin = format(zz_dod, f"0{bits}b").lstrip("0") or "0"
+                        logger.debug(f"  Zig-zag DoD: {zz_dod} - meaningful: {zz_bin}")
+                    self._write_dod(dod)
+                else:
+                    # First XOR, write full
+                    if self.debug:
+                        xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
+                        logger.debug(f"  Full XOR: {xor_val} - meaningful: {xor_bin}")
+                    self.bitstream.write_bits(xor_val, bits)
+                self.prev_xor = xor_val
             self.prev_val = packed
         self.count += 1
         return True
@@ -508,6 +558,7 @@ class ValuesDecoder:
         self.prev_lz = 0
         self.prev_tz = 0
         self.prev_len = 1
+        self.prev_xor = None  # For stacked modes
         self.debug = debug
 
     def _pack_float(self, val: float) -> int:
@@ -603,7 +654,7 @@ class ValuesDecoder:
                         logger.debug(
                             f"  XOR val: {xor_val} (meaningful: {xor_bin}) - only meaningful bits read, resulting packed: {packed} ({packed_bin})"
                         )
-                else:
+                elif self.mode == "dod":
                     if prev_delta is None:
                         bits_delta = 32 if self.precision == "f64" else 16
                         zz_delta = self.bitstream.read_bits(bits_delta)
@@ -639,6 +690,69 @@ class ValuesDecoder:
                             )
                     packed = prev_packed + delta
                     prev_delta = delta
+                    if self.debug:
+                        packed_bin = format(packed, f"0{bits}b")
+                        logger.debug(f"  Packed: {packed} ({packed_bin})")
+                elif self.mode == "xor_dod":
+                    # Read XOR on deltas
+                    if prev_delta is None:
+                        bits_delta = 32 if self.precision == "f64" else 16
+                        zz_delta = self.bitstream.read_bits(bits_delta)
+                        delta = zigzag_decode(zz_delta)
+                        if self.debug:
+                            zz_bin = (
+                                format(zz_delta, f"0{bits_delta}b").lstrip("0") or "0"
+                            )
+                            delta_bin = (
+                                format(abs(delta), f"0{bits_delta}b")
+                                if delta >= 0
+                                else format(
+                                    (1 << bits_delta) + delta, f"0{bits_delta}b"
+                                )
+                            )
+                            logger.debug(f"  Full delta: {delta} ({delta_bin})")
+                    else:
+                        xor_val = self._read_xor()
+                        delta = prev_delta ^ xor_val
+                        if self.debug:
+                            xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
+                            delta_bin = (
+                                format(abs(delta), f"0{bits}b")
+                                if delta >= 0
+                                else format((1 << bits) + delta, f"0{bits}b")
+                            )
+                            logger.debug(
+                                f"  XOR val: {xor_val} (meaningful: {xor_bin}) - decoded delta: {delta} ({delta_bin})"
+                            )
+                    packed = prev_packed + delta
+                    prev_delta = delta
+                    if self.debug:
+                        packed_bin = format(packed, f"0{bits}b")
+                        logger.debug(f"  Packed: {packed} ({packed_bin})")
+                elif self.mode == "dod_xor":
+                    # Read DoD on XORs
+                    if self.prev_xor is None:
+                        xor_val = self.bitstream.read_bits(bits)
+                        if self.debug:
+                            xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
+                            logger.debug(
+                                f"  Full XOR: {xor_val} (meaningful: {xor_bin})"
+                            )
+                    else:
+                        dod = self._read_dod()
+                        xor_val = self.prev_xor + dod
+                        if self.debug:
+                            dod_bin = (
+                                format(abs(dod), f"0{bits}b")
+                                if dod >= 0
+                                else format((1 << bits) + dod, f"0{bits}b")
+                            )
+                            xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
+                            logger.debug(
+                                f"  DoD: {dod} (meaningful: {dod_bin}) - accumulated XOR: {xor_val} ({xor_bin})"
+                            )
+                    packed = prev_packed ^ xor_val
+                    self.prev_xor = xor_val
                     if self.debug:
                         packed_bin = format(packed, f"0{bits}b")
                         logger.debug(f"  Packed: {packed} ({packed_bin})")
