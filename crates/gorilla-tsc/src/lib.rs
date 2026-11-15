@@ -3,6 +3,14 @@
 //! Widths, signedness and encoder state are carried in the type system: the
 //! codec is generic over a [`Word`] (`u32`/`u64`), so there is no place for a
 //! hard-coded bit count to disagree with the data it describes.
+//!
+//! ```
+//! use gorilla_tsc::{decode, encode, CheckpointInterval, Config, Mode};
+//!
+//! let cfg = Config::new(Mode::Auto).with_interval(CheckpointInterval::new(1000).unwrap());
+//! let bytes = encode(&[20.5f64, 21.0, 20.8], cfg);
+//! assert_eq!(decode::<f64>(&bytes).unwrap(), [20.5, 21.0, 20.8]);
+//! ```
 
 mod adaptive;
 mod bits;

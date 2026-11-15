@@ -1,148 +1,134 @@
-# Gorilla Time Series Compression
+# gorilla-tsc
 
-A Python implementation of a variant of the Gorilla time series compression algorithm, optimized for in-memory storage with configurable precision and modes.
+Lossless time series compression for integer timestamps and float values: a
+Rust library (`crates/gorilla-tsc`) with a thin Python package
+(`gorilla_tsc_py`) on top. It started as a Python implementation of Facebook's
+Gorilla codec; the default `auto` mode now compresses the standard Gorilla/Chimp
+benchmark datasets 3.8–16x smaller than Gorilla.
 
-## Features
+## Results
 
-- **Timestamps**: Delta-of-delta encoding with checkpoints every n items.
-- **Values**: Configurable XOR (default, for irregular floats) or delta-of-delta (for trends) with checkpoints.
-- **Precision**: Support for int32/int64 timestamps, f32/f64 values.
-- **Checkpoints**: User-configurable interval (default 100) for error recovery.
-- **Convenience**: Functions to estimate compression on sample data.
+Bits per value (lower is better) on the datasets used by the Gorilla and Chimp
+papers, compressed in independent blocks of 1000 values as in the Chimp paper.
+Reproduce with `scripts/fetch-bench-data.sh` then
+`cargo run --release -p gorilla-tsc --example bench`.
 
-## Installation
+| dataset | Gorilla (`xor`) | Chimp128 (paper) | `auto` |
+| --- | ---: | ---: | ---: |
+| city_temperature (2.9M) | 58.66 | 22.92 | **7.72** |
+| Stocks-Germany (5M) | 46.83 | 13.20 | **2.93** |
+| SSD_HDD (8.9k) | 40.18 | 17.00 | **10.68** |
+| Stocks-Germany timestamps, s (5M) | 8.03 (`dod`) | – | **3.95** |
+| scrape timestamps, 10 s ± 5 ms (1M) | 8.75 (`dod`) | – | **4.92** |
 
-Clone and install:
+Our `xor` mode reproduces the published Gorilla figures (58.72 / 46.90 / 40.25),
+which cross-checks the implementation.
+
+Speed (Rust, one core of an i7-8700K, measured while other work shared the
+machine, so treat as a lower bound): `auto` encodes at
+16–24 MB/s and decodes at 130–330 MB/s; the Gorilla modes encode at 320–520 MB/s.
+Encoding is a per-block search for the smallest representation, so it costs
+more than decoding; `encode_parallel` / `encode(..., threads=n)` splits blocks
+across threads and produces identical bytes.
+
+## How it gets there
+
+Each block of `checkpoint_interval` items is compressed independently, with
+parameters chosen for that block:
+
+- **Decimal** (floats): most real-world floats were decimals. Each block is
+  scaled by the power of ten (`-18..=18`) that turns its values into integers
+  at the least total cost; values that do not round-trip bit for bit (NaN,
+  `-0.0`, high-precision values) are stored verbatim as exceptions. The
+  integers then go through **Delta**.
+- **Delta** (integers): first differences, second differences or the values
+  themselves (whichever is cheapest), divided by their common divisor (price
+  ticks), then coded with either
+  - **Rice** coding with the transform (zig-zag, or offset from the block
+    minimum) and parameter `k` chosen exactly per block, or
+  - an **adaptive binary range coder** (the LZMA design) over a binarisation
+    of each residual with contexts from the previous residual's magnitude,
+  whichever is smaller.
+- **Auto** tries every applicable mode per block and keeps the smallest
+  (a 3-bit selector per block).
+
+The classic Gorilla modes are still available: `xor` (Gorilla values), `dod`
+(Gorilla timestamps) and the stacked `xor_dod` / `dod_xor`. On the benchmark
+On the benchmark value datasets the stacked modes never beat plain `xor`.
+
+## Python
 
 ```bash
-git clone <repo>
-cd gorilla_tsc_py
-pip install -e .
+uv sync          # builds the Rust extension with maturin
+uv run pytest
 ```
 
-## Demo
+```python
+import gorilla_tsc_py as g
 
-Run the demo script to see the library in action:
+data = g.encode([20.5, 21.0, 20.8, 21.2])                # f64, mode="auto"
+g.decode(data)                                            # [20.5, 21.0, 20.8, 21.2]
+g.inspect(data)  # {'version': 1, 'precision': 'f64', 'mode': 'auto', 'checkpoint_interval': 100, 'count': 4}
+
+ts = g.encode([1_700_000_000_000 + 10_000 * i for i in range(10_000)], precision="int64", threads=4)
+```
+
+Precisions are `int32`, `int64`, `f32`, `f64`; modes are `xor`, `dod`,
+`xor_dod`, `dod_xor`, `delta`, `decimal` and `auto`. Timestamps must be `int`
+and values `float`: an `int` passed as a value is a `TypeError` rather than a
+silent conversion. Malformed or truncated input raises
+`gorilla_tsc_py.DecodeError` (a `ValueError`).
+
+The original class API remains and returns the same dict shapes:
+
+```python
+from gorilla_tsc_py import TimestampsEncoder, TimestampsDecoder, ValuesEncoder, ValuesDecoder
+from gorilla_tsc_py import PairsEncoder, PairsDecoder, estimate_ts_compression, estimate_val_compression
+
+result = ValuesEncoder(precision="f64", mode="auto", checkpoint_interval=100).encode_all([1.0, 1.5])
+ValuesDecoder(result).decode_all()      # also accepts result["encoded"]
+
+pairs = PairsEncoder().encode_all([(1002, 1.5), (1000, 1.0)])   # stable-sorted by timestamp
+PairsDecoder(pairs).decode_all()        # [(1000, 1.0), (1002, 1.5)]
+
+estimate_val_compression([1.0] * 500)   # {'ratio': ..., 'compressed_size': ..., 'bits_per_item': ...}
+```
+
+Encoders also stream: `encode_next(x)` then `finish()`. `demo.py` compares the
+modes on a synthetic sensor series and `benchmark.py` compares against the
+original pure-Python codec (kept in `reference/`).
+
+## Rust
+
+```rust
+use gorilla_tsc::{decode, encode, CheckpointInterval, Config, Mode};
+
+let cfg = Config::new(Mode::Auto).with_interval(CheckpointInterval::new(1000).unwrap());
+let bytes = encode(&[20.5f64, 21.0, 20.8], cfg);
+assert_eq!(decode::<f64>(&bytes).unwrap(), [20.5, 21.0, 20.8]);
+```
+
+The codec is generic over sealed `Sample` types (`i32`, `i64`, `f32`, `f64`)
+whose `Word` (`u32`/`u64`) fixes every bit width, so a field width cannot
+disagree with the data it describes. Arithmetic on words wraps, so residuals
+always fit a word. Decoding never panics on untrusted input: it returns a
+`DecodeError` for truncation, trailing data, unknown modes, impossible field
+values, or a stream of a different element type.
+
+## Format
+
+`'G'`, version `1`, a descriptor byte (`sample_type << 4 | mode`, top two bits
+reserved), varint checkpoint interval, varint item count, then the bit-packed
+blocks. The format is self-describing; decoders need only the bytes.
+
+## Development
 
 ```bash
-python demo.py
+cargo test --workspace         # Rust unit + property tests, and the Python suite against a fresh build
+cargo clippy --all-targets     # pedantic lints, casts denied
+cargo mutants -p gorilla-tsc   # mutation testing; equivalent mutants are excluded in .cargo/mutants.toml
 ```
 
-It demonstrates round-trip accuracy, error handling, benchmarks, and test summaries.
-
-## Usage
-
-### Encoding/Decoding Timestamps
-
-```python
-from gorilla_tsc_py import TimestampsEncoder, TimestampsDecoder
-
-timestamps = [1000, 1001, 1002, 1003]
-encoder = TimestampsEncoder(precision='int64', checkpoint_interval=100)
-result = encoder.encode_all(timestamps)
-# result: {'encoded': bytes, 'nb_timestamps': 4, 'precision': 'int64', 'checkpoint_interval': 100}
-
-decoder = TimestampsDecoder(result)
-decoded = decoder.decode_all()
-# decoded: [1000, 1001, 1002, 1003]
-```
-
-### Encoding/Decoding Values
-
-```python
-from gorilla_tsc_py import ValuesEncoder, ValuesDecoder
-
-values = [1.0, 1.0001, 1.0002]
-encoder = ValuesEncoder(precision='f64', mode='xor', checkpoint_interval=100)
-result = encoder.encode_all(values)
-# result: {'encoded': bytes, 'nb_values': 3, 'precision': 'f64', 'mode': 'xor', 'checkpoint_interval': 100}
-
-decoder = ValuesDecoder(result)
-decoded = decoder.decode_all()
-# decoded: [1.0, 1.0001, 1.0002]
-```
-
-### Encoding/Decoding Pairs
-
-```python
-from gorilla_tsc_py import PairsEncoder, PairsDecoder
-
-pairs = [(1000, 1.0), (1001, 1.1), (1002, 1.2)]
-encoder = PairsEncoder(ts_precision='int64', val_precision='f64', val_mode='xor', checkpoint_interval=100)
-result = encoder.encode_all(pairs)
-
-decoder = PairsDecoder(result)
-decoded = decoder.decode_all()
-# decoded: [(1000, 1.0), (1001, 1.1), (1002, 1.2)]
-```
-
-### Estimating Compression
-
-```python
-from gorilla_tsc_py import estimate_ts_compression, estimate_val_compression
-
-ts_data = [1000, 1001, 1002] * 100
-stats = estimate_ts_compression(ts_data, precision='int64', checkpoint_interval=100)
-# {'ratio': ~10.0, 'compressed_size': 50, 'bits_per_item': 1.33}
-
-val_data = [1.0, 1.0001, 1.0002] * 100
-stats = estimate_val_compression(val_data, mode='xor', precision='f64')
-# {'ratio': ~5.0, 'compressed_size': 160, 'bits_per_item': 12.8}
-```
-
-## Choosing Compression Modes for Values
-
-- **XOR** (default): Best for floating-point data with irregular patterns (e.g., sensor noise, varying exponents). Exploits bit-level similarities for higher compression (5-10x) on noisy data.
-- **DoD**: Simpler arithmetic differencing. Best for predictable trends or integer-like floats. May compress worse (2-7x) for noisy data, but useful for simplicity.
-- **XOR_DoD** (XOR on DoD): Apply DoD first, then XOR on deltas. Excels on trending data with small changes (can achieve 15-20x compression). Use for counters or linear series.
-- **DoD_XOR** (DoD on XOR): Apply XOR first, then DoD on XOR results. Excels on data with bit similarities and some trends (up to 30-40x). Use for mixed/irregular data with underlying patterns.
-
-**Guidance**: Test modes on sample data using `estimate_val_compression`. For noisy sensors, try XOR or DoD_XOR. For smooth trends, try DoD or XOR_DoD.
-
-### Real-World Use Cases
-
-#### Compressing IoT Sensor Data (Irregular/Noisy)
-For data like temperature readings with noise:
-```python
-values = [20.5, 21.0, 20.8, 21.2, 20.9]  # Noisy floats
-stats = estimate_val_compression(values, mode='xor', precision='f64')
-# Likely high ratio due to bit similarities
-encoder = ValuesEncoder(mode='xor')
-result = encoder.encode_all(values)
-```
-
-#### Compressing Linear Trends (e.g., Counters)
-For predictable increases:
-```python
-values = [100.0, 101.0, 102.0, 103.0]
-stats = estimate_val_compression(values, mode='dod', precision='f64')
-# DoD may outperform XOR here
-```
-
-### Performance Tips
-- **Choose Checkpoint Interval (n)**: Smaller n (e.g., 10) improves random access but reduces compression. Larger n (e.g., 1000) maximizes ratios but slows seeks.
-- **Precision Trade-Offs**: f32 halves storage but loses precision; use f64 for accuracy-critical data.
-- **Mode Selection**: Test both modes on samples. XOR for varied data, DoD for trends.
-- **Large Datasets**: Use incremental encoding if memory is an issue.
-
-### Troubleshooting
-- **Low Ratios?** Data may be too irregular—try XOR for floats. Check if values are identical (high ratios expected).
-- **Errors on Encoding?** Ensure inputs are correct types (ints for timestamps, floats for values).
-- **Precision Loss?** DoD on floats may accumulate errors; use XOR for exactness.
-
-### Benchmark Results (on 1000 samples, checkpoint_interval=100)
-
-- **Timestamps (linear, delta=1)**: ~37x compression, ~1.7 bits/item.
-- **Values (identical)**: XOR ~39x, DoD ~33x.
-- **Values (linear, small increments)**: XOR ~1.2x, DoD ~9x (DoD better for trends).
-- **Values (irregular, varying)**: XOR ~1.1x, DoD ~3.5x (XOR better for noise).
-- **Values (oscillating, e.g., -0.1, +0.1)**: XOR ~1.2x, DoD ~1.8x (DoD benefits from zig-zag on negatives).
-
-## Algorithm Notes
-
-Based on Gorilla (Pelkonen et al., 2015), with adaptations:
-- Timestamps: Delta-of-delta with variable-bit encoding.
-- Values: XOR with LZ/TZ compression or delta-of-delta on packed floats.
-- Checkpoints: Full values every n items to reset deltas.
-
-Lossless, efficient for time series.
+`crates/gorilla-tsc-py/tests/python.rs` builds the extension and runs pytest
+against it, so `cargo mutants -p gorilla-tsc-py` measures the Python suite
+against mutations of the bindings.
