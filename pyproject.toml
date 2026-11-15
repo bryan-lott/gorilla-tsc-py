@@ -17,3 +17,16 @@ gorilla-tsc-py = "gorilla_tsc_py:main"
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mutmut>=3.8.1",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mutmut]
+source_paths = ["src/gorilla_tsc_py/"]
+pytest_add_cli_args_test_selection = ["tests/"]
