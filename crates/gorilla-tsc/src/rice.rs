@@ -134,8 +134,38 @@ fn value_cost<W: Word>(z: u64, k: u32) -> u64 {
     if q < escape_q::<W>() { q + 1 + u64::from(k) } else { escape_q::<W>() + u64::from(W::BITS) }
 }
 
-fn mapped_cost<W: Word>(zs: &[u64], k: u32) -> u64 {
-    zs.iter().map(|&z| value_cost::<W>(z, k)).sum()
+/// Exact value cost of `zs` for every `k` in `0..W::BITS`, in O(n * log2(escape)).
+///
+/// A value of bit length `L` costs `k + 1` when `L <= k`, escapes when
+/// `L > k + E` (`E = log2(escape)`), and otherwise costs `k + 1 + (z >> k)`.
+/// So only the `E` values of `k` just below `L` need the value itself; the
+/// rest follows from a histogram of bit lengths.
+fn costs_for_all_k<W: Word>(zs: &[u64]) -> Vec<u64> {
+    let bits = W::BITS as usize;
+    let e = escape_q::<W>().trailing_zeros() as usize;
+    let mut count = vec![0u64; bits + 1];
+    let mut quotients = vec![0u64; bits];
+    for &z in zs {
+        let len = z.bit_width() as usize;
+        count[len] += 1;
+        let low = len.saturating_sub(e);
+        for (k, q) in quotients[low..len].iter_mut().enumerate() {
+            *q += z >> (low + k);
+        }
+    }
+    // prefix[i] = number of values with bit length < i
+    let mut prefix = vec![0u64; bits + 2];
+    for len in 0..=bits {
+        prefix[len + 1] = prefix[len] + count[len];
+    }
+    let escape_cost = escape_q::<W>() + u64::from(W::BITS);
+    (0..bits)
+        .map(|k| {
+            let not_escaped = prefix[(k + e + 1).min(bits + 1)];
+            let escaped = zs.len() as u64 - not_escaped;
+            not_escaped * (k as u64 + 1) + quotients[k] + escaped * escape_cost
+        })
+        .collect()
 }
 
 impl RiceBlock {
@@ -157,9 +187,9 @@ impl RiceBlock {
             for &scale in scales {
                 let probe = RiceParams { transform, base, scale, k: 0 };
                 let zs: Vec<u64> = residuals.iter().map(|&r| probe.map(r)).collect();
-                for k in 0..W::BITS {
+                for (k, cost) in (0..W::BITS).zip(costs_for_all_k::<W>(&zs)) {
                     let p = RiceParams { k, ..probe };
-                    let c = p.header_bits() + mapped_cost::<W>(&zs, k);
+                    let c = p.header_bits() + cost;
                     if best.is_none_or(|(b, _)| c < b) {
                         best = Some((c, p));
                     }

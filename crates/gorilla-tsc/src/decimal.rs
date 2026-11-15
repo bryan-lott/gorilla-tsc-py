@@ -50,21 +50,69 @@ pub fn scale<T: Sample>(items: &[T::Word], k: i32) -> Scaled<T::Word> {
 }
 
 /// The exponents worth costing: each has fewer exceptions than every smaller one.
+#[cfg(test)]
 #[must_use]
 pub fn candidate_exponents<T: Sample>(items: &[T::Word]) -> Vec<i32> {
-    let mut best = usize::MAX;
-    let mut out = Vec::new();
-    for k in -T::MAX_SCALE..=T::MAX_SCALE {
-        let ex = items.iter().filter(|&&w| T::from_word(w).to_scaled(k).is_none()).count();
-        if ex < best {
-            best = ex;
-            out.push(k);
+    exception_front::<T>(items).into_iter().map(|(k, _)| k).collect()
+}
+
+/// `(k, exceptions)` for each exponent with fewer exceptions than every smaller one.
+///
+/// Each value scales on a contiguous range of exponents: from its number of
+/// decimal digits up to where `v * 10^k` stops being an exact integer. So one
+/// pass finds each value's range and a difference array counts, per `k`, the
+/// values that scale. `scale` re-checks every value, so this only steers the
+/// choice of `k`; it can never make an encoding wrong.
+fn exception_front<T: Sample>(items: &[T::Word]) -> Vec<(i32, usize)> {
+    let span = usize::try_from(2 * T::MAX_SCALE + 1).unwrap_or(1);
+    let index = |k: i32| usize::try_from(k + T::MAX_SCALE).unwrap_or(0);
+    let mut starts = vec![0isize; span + 1];
+    for &w in items {
+        let v = T::from_word(w);
+        if let Some((lo, hi)) = scale_range(v) {
+            starts[index(lo)] += 1;
+            starts[index(hi) + 1] -= 1;
         }
     }
-    out
+    let mut front = Vec::new();
+    let mut best = usize::MAX;
+    let mut scaling = 0isize;
+    for k in -T::MAX_SCALE..=T::MAX_SCALE {
+        scaling += starts[index(k)];
+        let ex = items.len() - usize::try_from(scaling).unwrap_or(0);
+        if ex < best {
+            best = ex;
+            front.push((k, ex));
+        }
+    }
+    front
+}
+
+/// The contiguous exponent range on which `v` scales exactly, if any.
+fn scale_range<T: Sample>(v: T) -> Option<(i32, i32)> {
+    let ok = |k: i32| v.to_scaled(k).is_some();
+    // Smallest exponent: most values have few decimals, so search up from 0
+    // (or down through trailing zeros).
+    let lo = if ok(0) {
+        let mut k = 0;
+        while k > -T::MAX_SCALE && ok(k - 1) {
+            k -= 1;
+        }
+        k
+    } else {
+        (1..=T::MAX_SCALE).find(|&k| ok(k))?
+    };
+    // Largest exponent: success is monotone up to the exact-integer limit.
+    let (mut hi, mut fail) = (lo, T::MAX_SCALE + 1);
+    while fail - hi > 1 {
+        let mid = hi + (fail - hi) / 2;
+        if ok(mid) { hi = mid } else { fail = mid }
+    }
+    Some((lo, hi))
 }
 
 /// Exact size of `scaled` once written, in bits.
+#[cfg(test)]
 #[must_use]
 pub fn cost<W: Word>(scaled: &Scaled<W>) -> usize {
     let mut w = BitWriter::new();
@@ -74,12 +122,31 @@ pub fn cost<W: Word>(scaled: &Scaled<W>) -> usize {
 
 /// The exponent [`DecimalRice`] uses for `items`: the cheapest candidate,
 /// ties going to the smaller exponent.
+#[cfg(test)]
 #[must_use]
 pub fn chosen_exponent<T: Sample>(items: &[T::Word]) -> i32 {
-    candidate_exponents::<T>(items)
-        .into_iter()
-        .min_by_key(|&k| cost(&scale::<T>(items, k)))
-        .unwrap_or(0)
+    best_encoding::<T>(items).0
+}
+
+/// The cheapest candidate exponent and its encoding (ties: smaller exponent).
+///
+/// Candidates are tried from fewest exceptions up; one whose exceptions alone
+/// cost more than the best so far cannot win and is skipped.
+fn best_encoding<T: Sample>(items: &[T::Word]) -> (i32, BitWriter) {
+    let n = items.len();
+    let per_exception = (bit_len(n.saturating_sub(1)) + T::Word::BITS) as usize;
+    let mut best: Option<(usize, i32, BitWriter)> = None;
+    for (k, exceptions) in exception_front::<T>(items).into_iter().rev() {
+        if best.as_ref().is_some_and(|b| exceptions * per_exception > b.0) {
+            continue;
+        }
+        let mut w = BitWriter::new();
+        write_scaled(&scale::<T>(items, k), &mut w);
+        if best.as_ref().is_none_or(|b| (w.bit_len(), k) < (b.0, b.1)) {
+            best = Some((w.bit_len(), k, w));
+        }
+    }
+    best.map_or_else(|| (0, BitWriter::new()), |(_, k, w)| (k, w))
 }
 
 /// Write a scaled block (everything after the codec chose `k`).
@@ -103,7 +170,7 @@ fn bit_len(n: usize) -> u32 {
 
 impl<T: Sample> BlockCodec<T::Word> for DecimalRice<T> {
     fn encode_block(&self, items: &[T::Word], out: &mut BitWriter) {
-        write_scaled(&scale::<T>(items, chosen_exponent::<T>(items)), out);
+        out.append(&best_encoding::<T>(items).1);
     }
 
     #[allow(clippy::cast_possible_truncation)] // field widths bound every value read
