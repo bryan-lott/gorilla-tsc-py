@@ -2,10 +2,12 @@
 //!
 //! Block layout: first item verbatim; then, if there is more than one item, a
 //! 2-bit order (`0` = first differences, `1` = second differences, `2` = the
-//! values themselves) and a [`RiceBlock`] of the residuals.
+//! values themselves), a coder bit (`0` = [`RiceBlock`], `1` =
+//! [`AdaptiveBlock`]) and the residuals in that coder. The cheapest order and
+//! coder are chosen per block.
 
 use crate::scheme::{Op, Sub};
-use crate::{BitReader, BitWriter, BlockCodec, DecodeError, RiceBlock, Word};
+use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBlock, Word};
 
 /// Delta / delta-of-delta block codec.
 #[derive(Debug, Default, Clone, Copy)]
@@ -20,6 +22,13 @@ pub enum Order {
     Second,
     /// `x[i]` itself (frame of reference via the Rice offset transform).
     Zero,
+}
+
+/// Residual coders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Coder {
+    Rice,
+    Adaptive,
 }
 
 /// Width of the order field.
@@ -92,14 +101,26 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         if rest.is_empty() {
             return;
         }
-        let cost = |r: &[W]| RiceBlock::cost(r, RiceBlock::choose(r));
-        let (order, r) = Order::ALL
-            .into_iter()
-            .map(|o| (o, residuals(items, o)))
-            .min_by_key(|(_, r)| cost(r))
-            .unwrap_or((Order::First, Vec::new()));
-        out.write(order.code(), ORDER_BITS);
-        RiceBlock::encode(&r, out);
+        // (bits, order, coded residuals) for every order and coder; keep the smallest.
+        let mut best: Option<(usize, Order, BitWriter)> = None;
+        for order in Order::ALL {
+            let r = residuals(items, order);
+            for coder in [Coder::Rice, Coder::Adaptive] {
+                let mut w = BitWriter::new();
+                w.write(u64::from(coder == Coder::Adaptive), 1);
+                match coder {
+                    Coder::Rice => RiceBlock::encode(&r, &mut w),
+                    Coder::Adaptive => AdaptiveBlock::encode(&r, &mut w),
+                }
+                if best.as_ref().is_none_or(|b| w.bit_len() < b.0) {
+                    best = Some((w.bit_len(), order, w));
+                }
+            }
+        }
+        if let Some((_, order, coded)) = best {
+            out.write(order.code(), ORDER_BITS);
+            out.append(&coded);
+        }
     }
 
     fn decode_block(&self, n: usize, input: &mut BitReader<'_>, out: &mut Vec<W>) -> Result<(), DecodeError> {
@@ -113,7 +134,11 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         }
         let order = Order::from_code(input.read(ORDER_BITS)?).ok_or(DecodeError::Corrupt("unknown delta order"))?;
         let mut r = Vec::with_capacity(n - 1);
-        RiceBlock::decode(n - 1, input, &mut r)?;
+        if input.read_bit()? {
+            AdaptiveBlock::decode(n - 1, input, &mut r)?;
+        } else {
+            RiceBlock::decode(n - 1, input, &mut r)?;
+        }
         integrate(first, &r, order, out);
         Ok(())
     }
@@ -139,8 +164,15 @@ mod tests {
         out
     }
 
+    fn adaptive_bits(r: &[u64]) -> u64 {
+        let mut w = BitWriter::new();
+        AdaptiveBlock::encode(r, &mut w);
+        w.bit_len() as u64
+    }
+
+    /// Cheapest coding of residuals, including the coder bit.
     fn best(r: &[u64]) -> u64 {
-        RiceBlock::cost(r, RiceBlock::choose(r))
+        1 + RiceBlock::cost(r, RiceBlock::choose(r)).min(adaptive_bits(r))
     }
 
     #[test]
@@ -197,8 +229,16 @@ mod tests {
     #[test]
     fn unordered_values_use_order_zero() {
         // A shuffled narrow range: values are cheap, their differences are not.
-        // Alternating levels: values span 60, but differences swing by +/-50.
-        let x: Vec<u64> = (0..200u64).map(|i| 5000 + 50 * (i % 2) + (i * i) % 7).collect();
+        // Uniform noise in a narrow band: differences are triangular and wider.
+        let mut s = 0x9E37_79B9_7F4A_7C15u64;
+        let x: Vec<u64> = (0..1000)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                1_000_000 + s % 1024
+            })
+            .collect();
         let zero = best(&residuals(&x, Order::Zero));
         assert!(zero < best(&residuals(&x, Order::First)));
         assert!(zero < best(&residuals(&x, Order::Second)));
@@ -214,6 +254,22 @@ mod tests {
         let bytes = w.finish();
         let r = DeltaRice.decode_block(2, &mut BitReader::new(&bytes), &mut Vec::<u64>::new());
         assert_eq!(r, Err(DecodeError::Corrupt("unknown delta order")));
+    }
+
+    #[test]
+    fn mostly_constant_series_uses_adaptive_coder() {
+        let x: Vec<u64> = (0..1000u64).map(|i| 500 + u64::from(i % 97 == 0)).collect();
+        let r = residuals(&x, Order::First);
+        assert!(adaptive_bits(&r) < RiceBlock::cost(&r, RiceBlock::choose(&r)));
+        assert!(bits(&x) < 64 + 2 + 400, "{} bits", bits(&x));
+    }
+
+    #[test]
+    fn smooth_series_picks_cheaper_coder() {
+        let x: Vec<u64> = (0..500u64).map(|i| 1_000_000 + i * i / 3).collect();
+        for order in [Order::First, Order::Second, Order::Zero] {
+            assert!(bits(&x) as u64 <= 64 + 2 + best(&residuals(&x, order)));
+        }
     }
 
     #[test]

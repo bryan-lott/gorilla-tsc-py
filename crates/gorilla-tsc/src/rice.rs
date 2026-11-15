@@ -107,13 +107,20 @@ fn common_divisor<W: Word>(residuals: &[W], transform: Transform, base: W) -> u6
     })
 }
 
-fn write_prefixed<W: Word>(out: &mut BitWriter, v: u64) {
+/// Common divisor of the signed magnitudes of `residuals` (0 if all are zero).
+pub(crate) fn signed_divisor<W: Word>(residuals: &[W]) -> u64 {
+    common_divisor(residuals, Transform::ZigZag, W::ZERO)
+}
+
+/// Write `v` as its bit length (log2(BITS)+1 bits) then its significant bits.
+pub(crate) fn write_prefixed<W: Word>(out: &mut BitWriter, v: u64) {
     out.write(u64::from(bit_length(v)), len_bits::<W>());
     out.write(v, bit_length(v));
 }
 
+/// Inverse of [`write_prefixed`]; `what` names the error for an overlong length.
 #[allow(clippy::cast_possible_truncation)] // the length field is at most 7 bits
-fn read_prefixed<W: Word>(input: &mut BitReader<'_>, what: &'static str) -> Result<u64, DecodeError> {
+pub(crate) fn read_prefixed<W: Word>(input: &mut BitReader<'_>, what: &'static str) -> Result<u64, DecodeError> {
     let len = input.read(len_bits::<W>())? as u32;
     if len > W::BITS {
         return Err(DecodeError::Corrupt(what));
