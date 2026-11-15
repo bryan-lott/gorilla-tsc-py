@@ -15,6 +15,10 @@ exclude_re = [
     "delta.rs.*replace < with <= in .*DeltaRice.*::encode_block",
     # (bits, k) pairs are never equal: each exponent is tried once.
     "decimal.rs.*replace < with <= in best_encoding",
+    # Weakening the pruning bound only tries more candidates; a candidate whose
+    # exceptions alone cost >= the best also pays a header, so cannot win.
+    "decimal.rs.*replace > with (==|>=) in best_encoding",
+    "decimal.rs.*replace \\* with [+/] in best_encoding",
     # Vec capacity hint only; never affects output.
     "stream.rs.*replace \\* with [+/] in decode",
 ]

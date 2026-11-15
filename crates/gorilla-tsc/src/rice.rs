@@ -485,12 +485,15 @@ mod tests {
 
     #[test]
     fn escape_at_exactly_the_escape_quotient() {
-        // 100 zeros pin k = 0, so the outlier's quotient is its zig-zag value:
-        // 32 for u64 (escape_q), which must take the escape path.
+        // 100 zeros pin k = 0, outliers either side keep offset coding
+        // unattractive (and share no divisor), so 16 zig-zags to a quotient
+        // of exactly escape_q.
         let mut r = vec![0u64; 100];
-        r.push(16);
-        assert_eq!(RiceBlock::choose(&r).k, 0);
+        r.extend(signed(&[16, -15]));
+        let p = RiceBlock::choose(&r);
+        assert_eq!((p.transform, p.k), (Transform::ZigZag, 0));
         assert_eq!(escape_q::<u64>(), 32);
+        assert!(r.iter().any(|&x| p.map(x) >> p.k == escape_q::<u64>()));
         assert_eq!(round_trip(&r), r);
         assert_eq!(encoded_bits(&r) as u64, RiceBlock::cost(&r, RiceBlock::choose(&r)));
     }
