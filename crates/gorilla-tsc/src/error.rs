@@ -41,3 +41,23 @@ impl fmt::Display for DecodeError {
 }
 
 impl std::error::Error for DecodeError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages() {
+        let cases = [
+            (DecodeError::UnexpectedEof, "unexpected end of stream"),
+            (DecodeError::BadMagic, "not a gorilla-tsc stream (bad magic)"),
+            (DecodeError::UnsupportedVersion(7), "unsupported format version 7"),
+            (DecodeError::InvalidHeader("x"), "invalid header: x"),
+            (DecodeError::KindMismatch { expected: "f64", found: "int32" }, "expected a f64 stream, found int32"),
+            (DecodeError::Corrupt("y"), "corrupt stream: y"),
+        ];
+        for (e, msg) in cases {
+            assert_eq!(e.to_string(), msg);
+        }
+    }
+}

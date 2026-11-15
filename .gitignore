@@ -10,3 +10,5 @@ wheels/
 .venv
 mutants/
 target/
+*.so
+*.pyd

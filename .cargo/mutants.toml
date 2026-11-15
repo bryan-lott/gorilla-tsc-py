@@ -1,0 +1,10 @@
+# cargo-mutants configuration. Each exclusion is a mutant that cannot change
+# observable behaviour, with the reason.
+exclude_re = [
+    # OR of non-overlapping bit ranges: `^` and `|` are identical.
+    "bits.rs.*replace \\| with \\^ in BitWriter::write",
+    "stream.rs.*replace \\| with \\^ in write_varint",
+    "stream.rs.*replace \\| with \\^ in Header::descriptor",
+    # Vec capacity hint only; never affects output.
+    "stream.rs.*replace \\* with [+/] in decode",
+]

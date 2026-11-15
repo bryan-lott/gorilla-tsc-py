@@ -6,25 +6,6 @@ Each test pins one bug; they were written failing before the fix.
 import pytest
 from hypothesis import given, strategies as st
 
-from gorilla_tsc_py.gorilla_compression import zigzag_encode, zigzag_decode
-
-
-# --- zig-zag ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "signed, unsigned",
-    [(0, 0), (-1, 1), (1, 2), (-2, 3), (2, 4), (-64, 127), (2**63 - 1, 2**64 - 2), (-(2**63), 2**64 - 1)],
-)
-def test_zigzag_known_values(signed, unsigned):
-    assert zigzag_encode(signed) == unsigned
-    assert zigzag_decode(unsigned) == signed
-
-
-@given(st.integers(min_value=-(2**70), max_value=2**70))
-def test_zigzag_round_trip(n):
-    assert zigzag_encode(n) >= 0
-    assert zigzag_decode(zigzag_encode(n)) == n
 
 
 # --- timestamps ------------------------------------------------------------

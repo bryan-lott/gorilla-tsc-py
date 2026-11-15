@@ -551,6 +551,33 @@ mod tests {
     }
 
     #[test]
+    fn config_error_displays_its_message() {
+        assert_eq!(ConfigError("boom".into()).to_string(), "boom");
+    }
+
+    #[test]
+    fn varint_tenth_byte_boundary() {
+        // count = u64::MAX needs ten bytes, the last holding only bit 63.
+        let max = [b'G', 1, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01];
+        assert_eq!(read_header(&max).map(|h| h.0.count), Ok(u64::MAX));
+        let zero_tail = [b'G', 1, 0, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00];
+        assert_eq!(read_header(&zero_tail).map(|h| h.0.count), Ok(0));
+        let overflow = [b'G', 1, 0, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02];
+        assert_eq!(read_header(&overflow), Err(DecodeError::InvalidHeader("varint too long")));
+    }
+
+    #[test]
+    fn varint_round_trips() {
+        for v in [0, 1, 127, 128, 300, u64::from(u32::MAX), u64::MAX - 1, u64::MAX] {
+            let mut buf = Vec::new();
+            write_varint(&mut buf, v);
+            let mut s = buf.as_slice();
+            assert_eq!(read_varint(&mut s), Ok(v));
+            assert_eq!(s, &[] as &[u8]);
+        }
+    }
+
+    #[test]
     fn every_descriptor_decodes() {
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
             for (mi, m) in MODES.into_iter().enumerate() {
