@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use gorilla_tsc::{CheckpointInterval, Config, Encoder, Mode, Sample, decode, encode};
 
 const BLOCK: u32 = 1000;
-const MODES: [Mode; 6] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal];
+const MODES: [Mode; 7] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal, Mode::Auto];
 
 fn column(path: &Path, col: usize) -> Vec<f64> {
     std::fs::read_to_string(path)

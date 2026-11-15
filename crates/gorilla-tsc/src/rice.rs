@@ -1,7 +1,10 @@
 //! Rice coding of a block of residuals, with parameters chosen per block.
 //!
 //! Block layout: `transform` (1 bit), then for [`Transform::Offset`] the block
-//! minimum (a full word), then `k` (log2(BITS) bits), then one code per value:
+//! minimum, zig-zagged and length-prefixed (bit length in log2(BITS)+1 bits,
+//! then that many bits); a scale flag (1 bit) and, if set, the common divisor
+//! `g > 1` of the residuals, length-prefixed; then `k` (log2(BITS) bits); then
+//! one code per value of `z / g`:
 //! `q = z >> k` in unary (`q` ones and a zero) followed by the low `k` bits.
 //! A quotient of at least `escape_q` is written as `escape_q` ones followed by
 //! the raw word, which bounds the cost of outliers.
@@ -24,6 +27,8 @@ pub struct RiceParams<W> {
     pub transform: Transform,
     /// Block minimum, for [`Transform::Offset`].
     pub base: W,
+    /// Common divisor of the mapped residuals (1 = none).
+    pub scale: u64,
     /// Rice parameter: number of low bits stored verbatim.
     pub k: u32,
 }
@@ -37,32 +42,83 @@ const fn escape_q<W: Word>() -> u64 {
     W::BITS as u64 / 2
 }
 
+/// Width of the offset base's length field (0..=BITS).
+const fn len_bits<W: Word>() -> u32 {
+    W::BITS.trailing_zeros() + 1
+}
+
+/// Significant bits of `v` (0 for zero).
+const fn bit_length(v: u64) -> u32 {
+    v.bit_width()
+}
+
 /// Width of the `k` field.
 const fn k_bits<W: Word>() -> u32 {
     W::BITS.trailing_zeros()
 }
 
 impl<W: Word> RiceParams<W> {
-    /// The unsigned value coded for residual `r`.
+    /// The unsigned value coded for residual `r` (which `scale` divides).
     fn map(self, r: W) -> u64 {
         match self.transform {
-            Transform::ZigZag => r.zigzag().to_u64(),
-            Transform::Offset => r.wrapping_sub(self.base).to_u64(),
+            Transform::ZigZag => {
+                W::from_i128_truncate(r.to_signed_i128() / i128::from(self.scale)).zigzag().to_u64()
+            }
+            Transform::Offset => r.wrapping_sub(self.base).to_u64() / self.scale,
         }
     }
 
     /// Inverse of [`RiceParams::map`].
     fn unmap(self, z: u64) -> W {
-        let z = W::from_u64_truncate(z);
         match self.transform {
-            Transform::ZigZag => z.unzigzag(),
-            Transform::Offset => z.wrapping_add(self.base),
+            Transform::ZigZag => {
+                let q = W::from_u64_truncate(z).unzigzag().to_signed_i128();
+                W::from_i128_truncate(q.wrapping_mul(i128::from(self.scale)))
+            }
+            Transform::Offset => W::from_u64_truncate(z.wrapping_mul(self.scale)).wrapping_add(self.base),
         }
     }
 
     fn header_bits(self) -> u64 {
-        1 + u64::from(k_bits::<W>()) + if self.transform == Transform::Offset { u64::from(W::BITS) } else { 0 }
+        let base = match self.transform {
+            Transform::ZigZag => 0,
+            Transform::Offset => len_bits::<W>() + bit_length(self.base.zigzag().to_u64()),
+        };
+        let scale = if self.scale > 1 { len_bits::<W>() + bit_length(self.scale) } else { 0 };
+        2 + u64::from(k_bits::<W>()) + u64::from(base) + u64::from(scale)
     }
+}
+
+const fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// Common divisor of the values `transform` maps `residuals` to before scaling.
+fn common_divisor<W: Word>(residuals: &[W], transform: Transform, base: W) -> u64 {
+    residuals.iter().fold(0, |g, &r| {
+        let v = match transform {
+            Transform::ZigZag => u64::try_from(r.to_signed_i128().unsigned_abs()).unwrap_or(0),
+            Transform::Offset => r.wrapping_sub(base).to_u64(),
+        };
+        gcd(g, v)
+    })
+}
+
+fn write_prefixed<W: Word>(out: &mut BitWriter, v: u64) {
+    out.write(u64::from(bit_length(v)), len_bits::<W>());
+    out.write(v, bit_length(v));
+}
+
+#[allow(clippy::cast_possible_truncation)] // the length field is at most 7 bits
+fn read_prefixed<W: Word>(input: &mut BitReader<'_>, what: &'static str) -> Result<u64, DecodeError> {
+    let len = input.read(len_bits::<W>())? as u32;
+    if len > W::BITS {
+        return Err(DecodeError::Corrupt(what));
+    }
+    input.read(len)
 }
 
 /// Bits for one mapped value `z` with parameter `k`.
@@ -89,17 +145,21 @@ impl RiceBlock {
         let base = residuals.iter().copied().min_by_key(|w| w.to_signed_i128()).unwrap_or(W::ZERO);
         let mut best: Option<(u64, RiceParams<W>)> = None;
         for (transform, base) in [(Transform::ZigZag, W::ZERO), (Transform::Offset, base)] {
-            let probe = RiceParams { transform, base, k: 0 };
-            let zs: Vec<u64> = residuals.iter().map(|&r| probe.map(r)).collect();
-            for k in 0..W::BITS {
-                let p = RiceParams { k, ..probe };
-                let c = p.header_bits() + mapped_cost::<W>(&zs, k);
-                if best.is_none_or(|(b, _)| c < b) {
-                    best = Some((c, p));
+            let g = common_divisor(residuals, transform, base);
+            let scales: &[u64] = if g > 1 { &[1, g] } else { &[1] };
+            for &scale in scales {
+                let probe = RiceParams { transform, base, scale, k: 0 };
+                let zs: Vec<u64> = residuals.iter().map(|&r| probe.map(r)).collect();
+                for k in 0..W::BITS {
+                    let p = RiceParams { k, ..probe };
+                    let c = p.header_bits() + mapped_cost::<W>(&zs, k);
+                    if best.is_none_or(|(b, _)| c < b) {
+                        best = Some((c, p));
+                    }
                 }
             }
         }
-        best.map_or(RiceParams { transform: Transform::ZigZag, base: W::ZERO, k: 0 }, |b| b.1)
+        best.map_or(RiceParams { transform: Transform::ZigZag, base: W::ZERO, scale: 1, k: 0 }, |b| b.1)
     }
 
     /// Append `residuals` using the cheapest parameters.
@@ -107,7 +167,11 @@ impl RiceBlock {
         let p = Self::choose(residuals);
         out.write(u64::from(p.transform == Transform::Offset), 1);
         if p.transform == Transform::Offset {
-            out.write(p.base.to_u64(), W::BITS);
+            write_prefixed::<W>(out, p.base.zigzag().to_u64());
+        }
+        out.write(u64::from(p.scale > 1), 1);
+        if p.scale > 1 {
+            write_prefixed::<W>(out, p.scale);
         }
         out.write(u64::from(p.k), k_bits::<W>());
         let esc = escape_q::<W>();
@@ -132,8 +196,21 @@ impl RiceBlock {
     #[allow(clippy::cast_possible_truncation)] // k field is at most 6 bits
     pub fn decode<W: Word>(n: usize, input: &mut BitReader<'_>, out: &mut Vec<W>) -> Result<(), DecodeError> {
         let transform = if input.read_bit()? { Transform::Offset } else { Transform::ZigZag };
-        let base = if transform == Transform::Offset { W::from_u64_truncate(input.read(W::BITS)?) } else { W::ZERO };
-        let p = RiceParams { transform, base, k: input.read(k_bits::<W>())? as u32 };
+        let base = if transform == Transform::Offset {
+            W::from_u64_truncate(read_prefixed::<W>(input, "Rice base longer than the word")?).unzigzag()
+        } else {
+            W::ZERO
+        };
+        let scale = if input.read_bit()? {
+            let g = read_prefixed::<W>(input, "Rice scale longer than the word")?;
+            if g <= 1 {
+                return Err(DecodeError::Corrupt("Rice scale must exceed 1"));
+            }
+            g
+        } else {
+            1
+        };
+        let p = RiceParams { transform, base, scale, k: input.read(k_bits::<W>())? as u32 };
         let esc = escape_q::<W>();
         for _ in 0..n {
             let mut q = 0;
@@ -176,41 +253,48 @@ mod tests {
     }
 
     fn zz(p: Transform, k: u32) -> RiceParams<u64> {
-        RiceParams { transform: p, base: 0, k }
+        RiceParams { transform: p, base: 0, scale: 1, k }
     }
 
     #[test]
     fn field_widths() {
         assert_eq!((k_bits::<u64>(), k_bits::<u32>()), (6, 5));
+        assert_eq!((len_bits::<u64>(), len_bits::<u32>()), (7, 6));
         assert_eq!((escape_q::<u64>(), escape_q::<u32>()), (32, 16));
     }
 
     #[test]
     fn cost_formula() {
-        // header 1 + 6; each value: q ones + 1 + k
+        // header: transform 1 + scale flag 1 + k 6; each value: q ones + 1 + k
         let r = signed(&[0, 1, -1, 5]); // zigzag 0, 2, 1, 10
-        assert_eq!(RiceBlock::cost(&r, zz(Transform::ZigZag, 0)), 7 + (1 + 3 + 2 + 11));
-        assert_eq!(RiceBlock::cost(&r, zz(Transform::ZigZag, 2)), 7 + 4 * 3 + 2); // q = 0,0,0,2
-        // offset adds a full base word
-        let p = RiceParams { transform: Transform::Offset, base: 0u64, k: 0 };
-        assert_eq!(RiceBlock::cost(&[3u64], p), 7 + 64 + 4);
+        assert_eq!(RiceBlock::cost(&r, zz(Transform::ZigZag, 0)), 8 + (1 + 3 + 2 + 11));
+        assert_eq!(RiceBlock::cost(&r, zz(Transform::ZigZag, 2)), 8 + 4 * 3 + 2); // q = 0,0,0,2
+        // offset adds the base: 7-bit length + zig-zag(base) bits
+        let p = RiceParams { transform: Transform::Offset, base: 0u64, scale: 1, k: 0 };
+        assert_eq!(RiceBlock::cost(&[3u64], p), 8 + 7 + 4);
+        let p = RiceParams { transform: Transform::Offset, base: 10_000u64, scale: 1, k: 0 };
+        assert_eq!(RiceBlock::cost(&[10_003u64], p), 8 + 7 + 15 + 4); // zz(10000) = 20000: 15 bits
+        let p = RiceParams { transform: Transform::Offset, base: i64::MIN.cast_unsigned(), scale: 1, k: 0 };
+        assert_eq!(RiceBlock::cost(&[i64::MIN.cast_unsigned()], p), 8 + 7 + 64 + 1);
+        let p32 = RiceParams { transform: Transform::Offset, base: 1u32, scale: 1, k: 0 };
+        assert_eq!(RiceBlock::cost(&[1u32], p32), 7 + 6 + 2 + 1);
     }
 
     #[test]
     fn escape_bounds_outlier_cost() {
         let p = zz(Transform::ZigZag, 0);
         // Residuals whose zig-zag value is z: q = 31 is still unary; q = 32 escapes.
-        assert_eq!(RiceBlock::cost(&[31u64.unzigzag()], p), 7 + 32);
-        assert_eq!(RiceBlock::cost(&[32u64.unzigzag()], p), 7 + 32 + 64);
-        assert_eq!(RiceBlock::cost(&[i64::MIN.cast_unsigned()], p), 7 + 32 + 64);
-        let p32 = RiceParams { transform: Transform::ZigZag, base: 0u32, k: 0 };
-        assert_eq!(RiceBlock::cost(&[15u32.unzigzag()], p32), 6 + 16);
-        assert_eq!(RiceBlock::cost(&[16u32.unzigzag()], p32), 6 + 16 + 32);
+        assert_eq!(RiceBlock::cost(&[31u64.unzigzag()], p), 8 + 32);
+        assert_eq!(RiceBlock::cost(&[32u64.unzigzag()], p), 8 + 32 + 64);
+        assert_eq!(RiceBlock::cost(&[i64::MIN.cast_unsigned()], p), 8 + 32 + 64);
+        let p32 = RiceParams { transform: Transform::ZigZag, base: 0u32, scale: 1, k: 0 };
+        assert_eq!(RiceBlock::cost(&[15u32.unzigzag()], p32), 7 + 16);
+        assert_eq!(RiceBlock::cost(&[16u32.unzigzag()], p32), 7 + 16 + 32);
     }
 
     #[test]
     fn all_zero_block_is_one_bit_per_value() {
-        assert_eq!(encoded_bits(&[0u64; 100]), 7 + 100);
+        assert_eq!(encoded_bits(&[0u64; 100]), 8 + 100);
     }
 
     #[test]
@@ -229,6 +313,60 @@ mod tests {
         let p = RiceBlock::choose(&r);
         assert_eq!(p.transform, Transform::Offset);
         assert_eq!(p.base, (-5i64).cast_unsigned());
+    }
+
+    #[test]
+    fn cost_with_scale() {
+        // multiples of 25: z/25 coded; header gains the 5-bit length-prefixed 25 (7 + 5 bits)
+        let r = signed(&[25, -50, 0, 75]); // /25 -> 1, -2, 0, 3 -> zz 2, 3, 0, 6
+        let p = RiceParams { transform: Transform::ZigZag, base: 0, scale: 25, k: 0 };
+        assert_eq!(RiceBlock::cost(&r, p), 8 + 7 + 5 + (3 + 4 + 1 + 7));
+    }
+
+    #[test]
+    fn common_divisor_is_used() {
+        let r = signed(&(0..200).map(|i| 25 * ((i * 7) % 9 - 4)).collect::<Vec<_>>());
+        let p = RiceBlock::choose(&r);
+        assert_eq!((p.transform, p.scale), (Transform::ZigZag, 25));
+        assert_eq!(round_trip(&r), r);
+    }
+
+    #[test]
+    fn offset_divisor_is_taken_after_subtracting_base() {
+        // 1_000_003 + 10*i: offsets from the minimum are multiples of 10.
+        let r = signed(&(0..200).map(|i| 1_000_003 + 10 * (i % 13)).collect::<Vec<_>>());
+        let p = RiceBlock::choose(&r);
+        assert_eq!((p.transform, p.base, p.scale), (Transform::Offset, 1_000_003, 10));
+        assert_eq!(round_trip(&r), r);
+    }
+
+    #[test]
+    fn scale_round_trips_extremes() {
+        let r = [i64::MIN.cast_unsigned(), 0, i64::MIN.cast_unsigned()];
+        assert_eq!(RiceBlock::choose(&r).scale, 1 << 63);
+        assert_eq!(round_trip(&r), r);
+        let r32 = [i32::MIN.cast_unsigned(), 0u32];
+        assert_eq!(round_trip(&r32), r32);
+    }
+
+    #[test]
+    fn all_zero_residuals_have_no_scale() {
+        assert_eq!(RiceBlock::choose(&[0u64; 10]).scale, 1);
+    }
+
+    #[test]
+    fn scale_of_zero_or_one_is_corrupt() {
+        for g in [0u64, 1] {
+            let mut w = BitWriter::new();
+            w.write(0, 1); // zig-zag
+            w.write(1, 1); // scaled
+            w.write(u64::from(g.bit_width()), 7);
+            w.write(g, g.bit_width());
+            w.write(0, 64);
+            let bytes = w.finish();
+            let r = RiceBlock::decode::<u64>(1, &mut BitReader::new(&bytes), &mut Vec::new());
+            assert_eq!(r, Err(DecodeError::Corrupt("Rice scale must exceed 1")), "g = {g}");
+        }
     }
 
     #[test]
@@ -252,6 +390,17 @@ mod tests {
     }
 
     #[test]
+    fn overlong_base_is_corrupt() {
+        let mut w = BitWriter::new();
+        w.write(1, 1); // offset
+        w.write(65, 7); // length > 64
+        w.write(0, 64);
+        let bytes = w.finish();
+        let r = RiceBlock::decode::<u64>(1, &mut BitReader::new(&bytes), &mut Vec::new());
+        assert_eq!(r, Err(DecodeError::Corrupt("Rice base longer than the word")));
+    }
+
+    #[test]
     fn truncated_input_is_eof() {
         let mut w = BitWriter::new();
         RiceBlock::encode(&signed(&[5, 6, 7, 8]), &mut w);
@@ -261,12 +410,23 @@ mod tests {
         assert_eq!(RiceBlock::decode(4, &mut BitReader::new(short), &mut out), Err(DecodeError::UnexpectedEof));
     }
 
+    fn gcd(a: u64, b: u64) -> u64 {
+        if b == 0 { a } else { gcd(b, a % b) }
+    }
+
     fn brute_min<W: Word>(r: &[W]) -> u64 {
         let mut best = u64::MAX;
         let base = r.iter().copied().min_by_key(|w| w.to_signed_i128()).unwrap_or(W::ZERO);
+        let g_zz = r.iter().fold(0, |g, w| gcd(g, u64::try_from(w.to_signed_i128().unsigned_abs()).unwrap()));
+        let g_off = r.iter().fold(0, |g, w| gcd(g, w.wrapping_sub(base).to_u64()));
         for k in 0..W::BITS {
-            best = best.min(RiceBlock::cost(r, RiceParams { transform: Transform::ZigZag, base: W::ZERO, k }));
-            best = best.min(RiceBlock::cost(r, RiceParams { transform: Transform::Offset, base, k }));
+            for (transform, base, g) in [(Transform::ZigZag, W::ZERO, g_zz), (Transform::Offset, base, g_off)] {
+                for scale in [1, g] {
+                    if scale >= 1 {
+                        best = best.min(RiceBlock::cost(r, RiceParams { transform, base, scale, k }));
+                    }
+                }
+            }
         }
         best
     }
@@ -289,6 +449,12 @@ mod tests {
         fn choice_is_optimal(r in prop::collection::vec(-100_000i64..100_000, 1..100)) {
             let r = signed(&r);
             prop_assert_eq!(RiceBlock::cost(&r, RiceBlock::choose(&r)), brute_min(&r));
+        }
+        #[test]
+        fn choice_is_optimal_scaled(r in prop::collection::vec(-300i64..300, 1..100), g in 1i64..40) {
+            let r = signed(&r.iter().map(|x| x * g).collect::<Vec<_>>());
+            prop_assert_eq!(RiceBlock::cost(&r, RiceBlock::choose(&r)), brute_min(&r));
+            prop_assert_eq!(round_trip(&r), r);
         }
         #[test]
         fn choice_is_optimal_u32(r in prop::collection::vec(any::<u32>(), 1..50)) {

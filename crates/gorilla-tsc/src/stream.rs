@@ -143,6 +143,8 @@ pub enum Mode {
     /// Floats scaled to integers by a per-block power of ten, then delta coded.
     /// Values that do not scale exactly are stored verbatim. Integers: as `Delta`.
     Decimal,
+    /// Per block, whichever other mode is smallest (3-bit selector per block).
+    Auto,
 }
 
 /// Items per independently decodable block. Never zero.
@@ -229,9 +231,12 @@ impl Mode {
             Self::DodXor => "dod_xor",
             Self::Delta => "delta",
             Self::Decimal => "decimal",
+            Self::Auto => "auto",
         }
     }
-    const ALL: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
+    const ALL: [Self; 7] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Auto];
+    /// Modes [`Mode::Auto`] chooses between, indexed by its selector.
+    const CONCRETE: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
 }
 
 impl FromStr for Mode {
@@ -300,8 +305,25 @@ fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
         Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
         Mode::Delta => DeltaRice.encode_block(items, out),
         Mode::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Mode::Auto => {
+            let (index, best) = Mode::CONCRETE
+                .iter()
+                .map(|&m| {
+                    let mut w = BitWriter::new();
+                    encode_block::<T>(m, items, &mut w);
+                    w
+                })
+                .enumerate()
+                .min_by_key(|(_, w)| w.bit_len())
+                .unwrap_or_default();
+            out.write(index as u64, AUTO_SELECTOR_BITS);
+            out.append(&best);
+        }
     }
 }
+
+/// Width of [`Mode::Auto`]'s per-block mode selector.
+const AUTO_SELECTOR_BITS: u32 = 3;
 
 /// Decode one block of `n` items with the codec for `mode`.
 fn decode_block<T: Sample>(
@@ -318,6 +340,11 @@ fn decode_block<T: Sample>(
         Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
         Mode::Delta => DeltaRice.decode_block(n, input, out),
         Mode::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
+        Mode::Auto => {
+            let selector = usize::try_from(input.read(AUTO_SELECTOR_BITS)?).unwrap_or(usize::MAX);
+            let mode = *Mode::CONCRETE.get(selector).ok_or(DecodeError::Corrupt("unknown block mode"))?;
+            decode_block::<T>(mode, n, input, out)
+        }
     }
 }
 
@@ -527,7 +554,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 6] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal];
+    const MODES: [Mode; 7] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal, Mode::Auto];
 
     fn cfg(mode: Mode, interval: u32) -> Config {
         Config::new(mode).with_interval(CheckpointInterval::new(interval).unwrap())
@@ -553,7 +580,7 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"], MODES.map(Mode::name));
     }
 
     #[test]
@@ -572,7 +599,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')".into()))
         );
     }
 
@@ -730,6 +757,37 @@ mod tests {
         // per block of 100: 6-bit exponent + 7-bit (empty) exception count
         assert_eq!(payload_bits(&v, Config::new(Mode::Decimal)), delta + 5 * (6 + 7));
         assert_eq!(decode::<i64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+    }
+
+    #[test]
+    fn auto_picks_the_smallest_mode_per_block() {
+        // Block 1: one-decimal values (decimal wins). Block 2: noisy high-precision floats.
+        let mut v: Vec<f64> = (0..100).map(|i| f64::from(200 + (i * 37) % 23) / 10.0).collect();
+        let mut s = 0x2545_F491_4F6C_DD1Du64;
+        v.extend((0..100).map(|_| {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            1.0 + f64::from(u32::try_from(s >> 40).unwrap()) / 16_777_216.0
+        }));
+        let per_block: usize = v
+            .chunks(100)
+            .map(|b| 3 + Mode::CONCRETE.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .sum();
+        assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
+        let best_single = Mode::CONCRETE.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
+        assert!(per_block < best_single);
+        assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Auto))), Ok(v));
+    }
+
+    #[test]
+    fn auto_rejects_unknown_block_selector() {
+        // f64 auto stream, one item, selector 7.
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b1110_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
+        // selector 6 would be Auto itself
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b1100_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
     }
 
     #[test]

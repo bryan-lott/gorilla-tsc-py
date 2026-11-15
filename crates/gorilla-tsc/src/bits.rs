@@ -37,6 +37,14 @@ impl BitWriter {
         self.pending = pending;
     }
 
+    /// Append everything written to `other`.
+    pub fn append(&mut self, other: &Self) {
+        for &b in &other.bytes {
+            self.write(u64::from(b), 8);
+        }
+        self.write(other.acc, other.pending);
+    }
+
     /// Number of bits written so far.
     #[must_use]
     pub fn bit_len(&self) -> usize {
@@ -137,6 +145,25 @@ mod tests {
         assert_eq!(r.read(64), Ok(u64::MAX));
         assert_eq!(r.read(64), Ok(0));
         assert_eq!(r.read(64), Ok(0x8000_0000_0000_0001));
+    }
+
+    #[test]
+    fn append_concatenates_bit_streams() {
+        let mut a = BitWriter::new();
+        a.write(0b101, 3);
+        let mut b = BitWriter::new();
+        b.write(0xABCD, 16);
+        b.write(0b11, 2);
+        a.append(&b);
+        assert_eq!(a.bit_len(), 21);
+        let mut expected = BitWriter::new();
+        expected.write(0b101, 3);
+        expected.write(0xABCD, 16);
+        expected.write(0b11, 2);
+        assert_eq!(a.finish(), expected.finish());
+        let mut empty = BitWriter::new();
+        empty.append(&BitWriter::new());
+        assert_eq!(empty.bit_len(), 0);
     }
 
     #[test]

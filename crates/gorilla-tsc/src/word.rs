@@ -33,6 +33,8 @@ pub trait Word:
     fn unzigzag(self) -> Self;
     /// The two's-complement (signed) reading of `self`, widened.
     fn to_signed_i128(self) -> i128;
+    /// The low `BITS` bits of `v`.
+    fn from_i128_truncate(v: i128) -> Self;
 }
 
 macro_rules! impl_word {
@@ -69,6 +71,10 @@ macro_rules! impl_word {
             }
             fn to_signed_i128(self) -> i128 {
                 i128::from(self.cast_signed())
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // truncation is the contract
+            fn from_i128_truncate(v: i128) -> Self {
+                v as $u
             }
         }
     };
@@ -120,6 +126,14 @@ mod tests {
         assert_eq!(5u64.to_signed_i128(), 5);
         assert_eq!(u32::MAX.to_signed_i128(), -1);
         assert_eq!(0x7FFF_FFFFu32.to_signed_i128(), i128::from(i32::MAX));
+    }
+
+    #[test]
+    fn i128_truncation() {
+        assert_eq!(u64::from_i128_truncate(-1), u64::MAX);
+        assert_eq!(u32::from_i128_truncate(-2), u32::MAX - 1);
+        assert_eq!(u32::from_i128_truncate(0x1_0000_0005), 5);
+        assert_eq!(u64::from_i128_truncate(i128::from(i64::MIN)), 1 << 63);
     }
 
     #[test]
