@@ -3,6 +3,8 @@
 
 use gorilla_tsc as gt;
 use gorilla_tsc::{CheckpointInterval, Config, Decoded, Encoder, Mode, SampleType};
+// `Result<T, PyErr>` rather than the `PyResult<T>` alias, so cargo-mutants
+// can generate type-correct replacement values (it does not see through aliases).
 use pyo3::create_exception;
 use pyo3::exceptions::{PyOverflowError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -18,7 +20,7 @@ fn decode_err(e: &gt::DecodeError) -> PyErr {
     DecodeError::new_err(e.to_string())
 }
 
-fn parse_config(mode: &str, checkpoint_interval: i64) -> PyResult<Config> {
+fn parse_config(mode: &str, checkpoint_interval: i64) -> Result<Config, PyErr> {
     let mode: Mode = mode.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
     let interval =
         CheckpointInterval::try_from(checkpoint_interval).map_err(|e| PyValueError::new_err(e.0))?;
@@ -40,7 +42,7 @@ enum FloatType {
 }
 
 impl IntType {
-    fn parse(s: &str) -> PyResult<Self> {
+    fn parse(s: &str) -> Result<Self, PyErr> {
         match s.parse() {
             Ok(SampleType::I32) => Ok(Self::I32),
             Ok(SampleType::I64) => Ok(Self::I64),
@@ -58,7 +60,7 @@ impl IntType {
 }
 
 impl FloatType {
-    fn parse(s: &str) -> PyResult<Self> {
+    fn parse(s: &str) -> Result<Self, PyErr> {
         match s.parse() {
             Ok(SampleType::F32) => Ok(Self::F32),
             Ok(SampleType::F64) => Ok(Self::F64),
@@ -74,7 +76,7 @@ impl FloatType {
 }
 
 /// Extract an `int` of the target width; floats are a `TypeError`, out-of-range an `OverflowError`.
-fn strict_int<T: TryFrom<i64>>(item: &Bound<'_, PyAny>, msg: &'static str) -> PyResult<T> {
+fn strict_int<T: TryFrom<i64>>(item: &Bound<'_, PyAny>, msg: &'static str) -> Result<T, PyErr> {
     if !item.is_instance_of::<PyInt>() {
         return Err(PyTypeError::new_err(msg));
     }
@@ -83,7 +85,7 @@ fn strict_int<T: TryFrom<i64>>(item: &Bound<'_, PyAny>, msg: &'static str) -> Py
 }
 
 /// Extract a `float`; ints are rejected rather than silently converted.
-fn strict_float(item: &Bound<'_, PyAny>, msg: &'static str) -> PyResult<f64> {
+fn strict_float(item: &Bound<'_, PyAny>, msg: &'static str) -> Result<f64, PyErr> {
     Ok(item.cast::<PyFloat>().map_err(|_| PyTypeError::new_err(msg))?.value())
 }
 
@@ -92,16 +94,16 @@ fn to_f32(v: f64) -> f32 {
     v as f32
 }
 
-fn ints<T: TryFrom<i64>>(items: &Bound<'_, PyAny>, msg: &'static str) -> PyResult<Vec<T>> {
+fn ints<T: TryFrom<i64>>(items: &Bound<'_, PyAny>, msg: &'static str) -> Result<Vec<T>, PyErr> {
     items.try_iter()?.map(|i| strict_int(&i?, msg)).collect()
 }
 
-fn floats(items: &Bound<'_, PyAny>, msg: &'static str) -> PyResult<Vec<f64>> {
+fn floats(items: &Bound<'_, PyAny>, msg: &'static str) -> Result<Vec<f64>, PyErr> {
     items.try_iter()?.map(|i| strict_float(&i?, msg)).collect()
 }
 
 /// Bytes from either raw `bytes` or an encoder result dict.
-fn bytes_of(data: &Bound<'_, PyAny>, key: &str) -> PyResult<Vec<u8>> {
+fn bytes_of(data: &Bound<'_, PyAny>, key: &str) -> Result<Vec<u8>, PyErr> {
     if let Ok(d) = data.cast::<PyDict>() {
         let v = d.get_item(key)?.ok_or_else(|| PyValueError::new_err(format!("missing key '{key}'")))?;
         return v.extract();
@@ -109,7 +111,7 @@ fn bytes_of(data: &Bound<'_, PyAny>, key: &str) -> PyResult<Vec<u8>> {
     data.extract().map_err(|_| PyTypeError::new_err("expected bytes or an encoder result dict"))
 }
 
-fn decoded_to_list(py: Python<'_>, d: Decoded) -> PyResult<Bound<'_, PyList>> {
+fn decoded_to_list(py: Python<'_>, d: Decoded) -> Result<Bound<'_, PyList>, PyErr> {
     match d {
         Decoded::I32(v) => PyList::new(py, v),
         Decoded::I64(v) => PyList::new(py, v),
@@ -129,7 +131,7 @@ fn result_dict<'py>(
     count: u64,
     precision: &str,
     config: Config,
-) -> PyResult<Bound<'py, PyDict>> {
+) -> Result<Bound<'py, PyDict>, PyErr> {
     let d = PyDict::new(py);
     d.set_item("encoded", PyBytes::new(py, bytes))?;
     d.set_item(count_key, count)?;
@@ -158,7 +160,7 @@ struct TimestampsEncoder {
 impl TimestampsEncoder {
     #[new]
     #[pyo3(signature = (precision = "int64", checkpoint_interval = 100, mode = "auto"))]
-    fn new(precision: &str, checkpoint_interval: i64, mode: &str) -> PyResult<Self> {
+    fn new(precision: &str, checkpoint_interval: i64, mode: &str) -> Result<Self, PyErr> {
         let precision = IntType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
         let inner = match precision {
@@ -169,7 +171,7 @@ impl TimestampsEncoder {
     }
 
     /// Append one timestamp. Returns True.
-    fn encode_next(&mut self, ts: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn encode_next(&mut self, ts: &Bound<'_, PyAny>) -> Result<bool, PyErr> {
         match self.inner.as_mut().ok_or_else(finished)? {
             TsEncoder::I32(e) => e.push(strict_int(ts, "Timestamp must be int")?),
             TsEncoder::I64(e) => e.push(strict_int(ts, "Timestamp must be int")?),
@@ -178,7 +180,7 @@ impl TimestampsEncoder {
     }
 
     /// Append all `timestamps`, then finish the stream.
-    fn encode_all<'py>(&mut self, py: Python<'py>, timestamps: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    fn encode_all<'py>(&mut self, py: Python<'py>, timestamps: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         match self.inner.as_mut().ok_or_else(finished)? {
             TsEncoder::I32(e) => ints::<i32>(timestamps, TS_MSG)?.into_iter().for_each(|x| e.push(x)),
             TsEncoder::I64(e) => ints::<i64>(timestamps, TS_MSG)?.into_iter().for_each(|x| e.push(x)),
@@ -187,7 +189,7 @@ impl TimestampsEncoder {
     }
 
     /// Finish the stream and return the encoded result.
-    fn finish<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    fn finish<'py>(&mut self, py: Python<'py>) -> Result<Bound<'py, PyDict>, PyErr> {
         let inner = self.inner.take().ok_or_else(finished)?;
         let (count, bytes) = py.detach(|| match inner {
             TsEncoder::I32(e) => (e.len(), e.finish()),
@@ -206,16 +208,16 @@ struct TimestampsDecoder {
 #[pymethods]
 impl TimestampsDecoder {
     #[new]
-    fn new(data: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn new(data: &Bound<'_, PyAny>) -> Result<Self, PyErr> {
         Ok(Self { bytes: bytes_of(data, "encoded")? })
     }
 
-    fn decode_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    fn decode_all<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyList>, PyErr> {
         decode_ints(py, &self.bytes)
     }
 }
 
-fn decode_ints<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyList>> {
+fn decode_ints<'py>(py: Python<'py>, bytes: &[u8]) -> Result<Bound<'py, PyList>, PyErr> {
     match gt::decode_any(bytes).map_err(|e| decode_err(&e))? {
         d @ (Decoded::I32(_) | Decoded::I64(_)) => decoded_to_list(py, d),
         Decoded::F32(_) | Decoded::F64(_) => {
@@ -224,7 +226,7 @@ fn decode_ints<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyList
     }
 }
 
-fn decode_floats<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyList>> {
+fn decode_floats<'py>(py: Python<'py>, bytes: &[u8]) -> Result<Bound<'py, PyList>, PyErr> {
     match gt::decode_any(bytes).map_err(|e| decode_err(&e))? {
         d @ (Decoded::F32(_) | Decoded::F64(_)) => decoded_to_list(py, d),
         Decoded::I32(_) | Decoded::I64(_) => {
@@ -252,7 +254,7 @@ struct ValuesEncoder {
 impl ValuesEncoder {
     #[new]
     #[pyo3(signature = (precision = "f64", mode = "auto", checkpoint_interval = 100))]
-    fn new(precision: &str, mode: &str, checkpoint_interval: i64) -> PyResult<Self> {
+    fn new(precision: &str, mode: &str, checkpoint_interval: i64) -> Result<Self, PyErr> {
         let precision = FloatType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
         let inner = match precision {
@@ -263,7 +265,7 @@ impl ValuesEncoder {
     }
 
     /// Append one value. Returns True.
-    fn encode_next(&mut self, value: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn encode_next(&mut self, value: &Bound<'_, PyAny>) -> Result<bool, PyErr> {
         let v = strict_float(value, "Value must be float")?;
         match self.inner.as_mut().ok_or_else(finished)? {
             ValEncoder::F32(e) => e.push(to_f32(v)),
@@ -273,7 +275,7 @@ impl ValuesEncoder {
     }
 
     /// Append all `values`, then finish the stream.
-    fn encode_all<'py>(&mut self, py: Python<'py>, values: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    fn encode_all<'py>(&mut self, py: Python<'py>, values: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         let v = floats(values, VAL_MSG)?;
         match self.inner.as_mut().ok_or_else(finished)? {
             ValEncoder::F32(e) => v.into_iter().for_each(|x| e.push(to_f32(x))),
@@ -283,7 +285,7 @@ impl ValuesEncoder {
     }
 
     /// Finish the stream and return the encoded result.
-    fn finish<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    fn finish<'py>(&mut self, py: Python<'py>) -> Result<Bound<'py, PyDict>, PyErr> {
         let inner = self.inner.take().ok_or_else(finished)?;
         let (count, bytes) = py.detach(|| match inner {
             ValEncoder::F32(e) => (e.len(), e.finish()),
@@ -302,11 +304,11 @@ struct ValuesDecoder {
 #[pymethods]
 impl ValuesDecoder {
     #[new]
-    fn new(data: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn new(data: &Bound<'_, PyAny>) -> Result<Self, PyErr> {
         Ok(Self { bytes: bytes_of(data, "encoded")? })
     }
 
-    fn decode_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    fn decode_all<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyList>, PyErr> {
         decode_floats(py, &self.bytes)
     }
 }
@@ -322,7 +324,7 @@ struct PairsEncoder {
     val_config: Config,
 }
 
-fn extract_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<Vec<(i64, f64)>> {
+fn extract_pairs(pairs: &Bound<'_, PyAny>) -> Result<Vec<(i64, f64)>, PyErr> {
     pairs
         .try_iter()?
         .map(|p| {
@@ -336,7 +338,7 @@ fn extract_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<Vec<(i64, f64)>> {
         .collect()
 }
 
-fn narrow_ts(pairs: &[(i64, f64)]) -> PyResult<Vec<(i32, f64)>> {
+fn narrow_ts(pairs: &[(i64, f64)]) -> Result<Vec<(i32, f64)>, PyErr> {
     pairs
         .iter()
         .map(|&(t, v)| {
@@ -364,7 +366,7 @@ impl PairsEncoder {
         val_mode: &str,
         checkpoint_interval: i64,
         ts_mode: &str,
-    ) -> PyResult<Self> {
+    ) -> Result<Self, PyErr> {
         Ok(Self {
             ts_precision: IntType::parse(ts_precision)?,
             val_precision: FloatType::parse(val_precision)?,
@@ -373,7 +375,7 @@ impl PairsEncoder {
         })
     }
 
-    fn encode_all<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    fn encode_all<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         let pairs = extract_pairs(pairs)?;
         let (tc, vc) = (self.ts_config, self.val_config);
         let (ts, vals) = match (self.ts_precision, self.val_precision) {
@@ -405,25 +407,25 @@ struct PairsDecoder {
 #[pymethods]
 impl PairsDecoder {
     #[new]
-    fn new(data: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn new(data: &Bound<'_, PyAny>) -> Result<Self, PyErr> {
         Ok(Self { ts: bytes_of(data, "encoded_ts")?, vals: bytes_of(data, "encoded_val")? })
     }
 
-    fn decode_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    fn decode_all<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyList>, PyErr> {
         let ts = decode_ints(py, &self.ts)?;
         let vals = decode_floats(py, &self.vals)?;
         if ts.len() != vals.len() {
             return Err(DecodeError::new_err("pair streams differ in length"));
         }
         let pairs: Vec<Bound<'py, PyTuple>> =
-            ts.iter().zip(vals.iter()).map(|(t, v)| PyTuple::new(py, [t, v])).collect::<PyResult<_>>()?;
+            ts.iter().zip(vals.iter()).map(|(t, v)| PyTuple::new(py, [t, v])).collect::<Result<_, PyErr>>()?;
         PyList::new(py, pairs)
     }
 }
 
 // --- functions ----------------------------------------------------------------
 
-fn estimate_dict(py: Python<'_>, e: gt::Estimate) -> PyResult<Bound<'_, PyDict>> {
+fn estimate_dict(py: Python<'_>, e: gt::Estimate) -> Result<Bound<'_, PyDict>, PyErr> {
     let d = PyDict::new(py);
     d.set_item("ratio", e.ratio)?;
     d.set_item("compressed_size", e.compressed_size)?;
@@ -440,7 +442,7 @@ fn estimate_ts_compression<'py>(
     precision: &str,
     checkpoint_interval: i64,
     mode: &str,
-) -> PyResult<Bound<'py, PyDict>> {
+) -> Result<Bound<'py, PyDict>, PyErr> {
     let config = parse_config(mode, checkpoint_interval)?;
     let e = match IntType::parse(precision)? {
         IntType::I32 => gt::estimate(&ints::<i32>(data, TS_MSG)?, config),
@@ -458,7 +460,7 @@ fn estimate_val_compression<'py>(
     mode: &str,
     precision: &str,
     checkpoint_interval: i64,
-) -> PyResult<Bound<'py, PyDict>> {
+) -> Result<Bound<'py, PyDict>, PyErr> {
     let config = parse_config(mode, checkpoint_interval)?;
     let precision = FloatType::parse(precision)?;
     let v = floats(data, VAL_MSG)?;
@@ -480,7 +482,7 @@ fn encode<'py>(
     mode: &str,
     checkpoint_interval: i64,
     threads: i64,
-) -> PyResult<Bound<'py, PyBytes>> {
+) -> Result<Bound<'py, PyBytes>, PyErr> {
     let config = parse_config(mode, checkpoint_interval)?;
     let threads = usize::try_from(threads)
         .ok()
@@ -510,13 +512,13 @@ fn encode<'py>(
 
 /// Decode any stream to a list of ints or floats, as its header says.
 #[pyfunction]
-fn decode<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyList>> {
+fn decode<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> Result<Bound<'py, PyList>, PyErr> {
     decoded_to_list(py, gt::decode_any(&bytes_of(data, "encoded")?).map_err(|e| decode_err(&e))?)
 }
 
 /// Read a stream header: `version`, `precision`, `mode`, `checkpoint_interval`, `count`.
 #[pyfunction]
-fn inspect<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+fn inspect<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
     let (h, _) = gt::read_header(&bytes_of(data, "encoded")?).map_err(|e| decode_err(&e))?;
     let d = PyDict::new(py);
     d.set_item("version", gt::VERSION)?;
@@ -528,7 +530,7 @@ fn inspect<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<Bound<'py
 }
 
 #[pymodule]
-fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> Result<(), PyErr> {
     m.add("DecodeError", m.py().get_type::<DecodeError>())?;
     m.add_class::<TimestampsEncoder>()?;
     m.add_class::<TimestampsDecoder>()?;
