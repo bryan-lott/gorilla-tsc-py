@@ -1,0 +1,15 @@
+[package]
+name = "gorilla-tsc"
+description = "Gorilla-style time series compression with stacked XOR/delta-of-delta modes"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1.12"
+
+[lints]
+workspace = true

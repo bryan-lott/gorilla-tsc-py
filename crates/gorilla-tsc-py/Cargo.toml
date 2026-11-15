@@ -1,0 +1,18 @@
+[package]
+name = "gorilla-tsc-py"
+publish = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+gorilla-tsc = { path = "../gorilla-tsc" }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py313"] }
+
+[lints]
+workspace = true
