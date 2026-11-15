@@ -5,6 +5,7 @@ exclude_re = [
     "bits.rs.*replace \\| with \\^ in BitWriter::write",
     "stream.rs.*replace \\| with \\^ in write_varint",
     "stream.rs.*replace \\| with \\^ in Header::descriptor",
+    "adaptive.rs.*replace \\| with \\^ in AdaptiveBlock::decode",
     # Vec capacity hint only; never affects output.
     "stream.rs.*replace \\* with [+/] in decode",
 ]

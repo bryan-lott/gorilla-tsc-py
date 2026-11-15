@@ -70,7 +70,7 @@ impl AdaptiveBlock {
             let (mag, len) = magnitude(value);
             coder.bit(&mut model.zero[ctx_class], mag != 0);
             if mag != 0 {
-                coder.bit(&mut model.sign[ctx_class], value < 0);
+                coder.bit(&mut model.sign[ctx_class], value.is_negative());
                 for i in 1..len {
                     coder.bit(&mut model.len[ctx_class][i as usize], true);
                 }
