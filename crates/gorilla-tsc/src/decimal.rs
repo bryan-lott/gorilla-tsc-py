@@ -91,19 +91,15 @@ fn exception_front<T: Sample>(items: &[T::Word]) -> Vec<(i32, usize)> {
 /// The contiguous exponent range on which `v` scales exactly, if any.
 fn scale_range<T: Sample>(v: T) -> Option<(i32, i32)> {
     let ok = |k: i32| v.to_scaled(k).is_some();
-    // Smallest exponent: most values have few decimals, so search up from 0
-    // (or down through trailing zeros).
-    let lo = if ok(0) {
-        let mut k = 0;
-        while k > -T::MAX_SCALE && ok(k - 1) {
-            k -= 1;
-        }
-        k
-    } else {
-        (1..=T::MAX_SCALE).find(|&k| ok(k))?
-    };
-    // Largest exponent: success is monotone up to the exact-integer limit.
-    let (mut hi, mut fail) = (lo, T::MAX_SCALE + 1);
+    // Most values have a few decimals, so look at 0 and upwards first; values
+    // too large to be exact integers only scale at negative exponents.
+    let seed = (0..=T::MAX_SCALE).chain((-T::MAX_SCALE..0).rev()).find(|&k| ok(k))?;
+    let mut lo = seed;
+    while lo > -T::MAX_SCALE && ok(lo - 1) {
+        lo -= 1;
+    }
+    // Above the seed, success holds until the integer stops being exact.
+    let (mut hi, mut fail) = (seed, T::MAX_SCALE + 1);
     while fail - hi > 1 {
         let mid = hi + (fail - hi) / 2;
         if ok(mid) { hi = mid } else { fail = mid }
@@ -392,7 +388,98 @@ mod tests {
         assert_eq!(r, Err(DecodeError::Corrupt("decimal exponent out of range")));
     }
 
+    /// The exception front by direct counting at every exponent.
+    fn naive_front<T: Sample>(items: &[T::Word]) -> Vec<(i32, usize)> {
+        let mut front = Vec::new();
+        let mut best = usize::MAX;
+        for k in -T::MAX_SCALE..=T::MAX_SCALE {
+            let ex = items.iter().filter(|&&w| T::from_word(w).to_scaled(k).is_none()).count();
+            if ex < best {
+                best = ex;
+                front.push((k, ex));
+            }
+        }
+        front
+    }
+
+    /// `(k, bits)` of the smallest encoding over the front, ties to smaller `k`.
+    fn naive_best<T: Sample>(items: &[T::Word]) -> (i32, usize) {
+        naive_front::<T>(items)
+            .into_iter()
+            .map(|(k, _)| {
+                let mut w = BitWriter::new();
+                write_scaled(&scale::<T>(items, k), &mut w);
+                (w.bit_len(), k)
+            })
+            .min()
+            .map_or((0, 0), |(b, k)| (k, b))
+    }
+
+    /// Mostly decimals with 0..8 places, sometimes scaled up, sometimes special.
+    #[allow(clippy::cast_precision_loss)] // small test integers
+    fn decimalish() -> impl Strategy<Value = f64> {
+        prop_oneof![
+            8 => (-10_000_000i64..10_000_000, 0i32..8).prop_map(|(m, d)| m as f64 / 10f64.powi(d)),
+            2 => (-1000i64..1000, 0i32..6).prop_map(|(m, e)| m as f64 * 10f64.powi(e)),
+            1 => prop::sample::select(vec![f64::NAN, -0.0, 0.1 + 0.2, 1e300, 1e-300, f64::INFINITY, 0.123_456_789_012_345]),
+        ]
+    }
+
+    /// Every exponent at which `v` scales, checked one by one.
+    fn naive_exponents<T: Sample>(v: T) -> Vec<i32> {
+        (-T::MAX_SCALE..=T::MAX_SCALE).filter(|&k| v.to_scaled(k).is_some()).collect()
+    }
+
+    fn range_exponents<T: Sample>(v: T) -> Vec<i32> {
+        scale_range(v).map_or_else(Vec::new, |(lo, hi)| (lo..=hi).collect())
+    }
+
+    #[test]
+    fn scale_range_examples() {
+        assert_eq!(scale_range(f64::NAN), None);
+        assert_eq!(scale_range(0.0f64), Some((-18, 18)));
+        assert_eq!(scale_range(1.5f64).map(|r| r.0), Some(1));
+        assert_eq!(scale_range(1200.0f64).map(|r| r.0), Some(-2));
+        // Too large to be an exact integer at k = 0, but fine at negative k.
+        assert_eq!(scale_range(1e17f64).map(|r| r.0), Some(-17));
+        assert_eq!(scale_range(3e20f64).map(|r| r.0), Some(-18));
+        for v in [1.5f64, 1200.0, 1e17, 3e20, 0.1 + 0.2, 123.456, 1e-300, -2.75] {
+            assert_eq!(range_exponents(v), naive_exponents(v), "v = {v}");
+        }
+    }
+
     proptest! {
+        #[test]
+        #[allow(clippy::cast_precision_loss)] // small test integers
+        fn scale_range_is_exactly_the_scaling_exponents(v in decimalish(), big in -20i32..20, m in -1000i64..1000) {
+            prop_assert_eq!(range_exponents(v), naive_exponents(v));
+            let w = m as f64 * 10f64.powi(big);
+            prop_assert_eq!(range_exponents(w), naive_exponents(w));
+            #[allow(clippy::cast_possible_truncation)]
+            let f = w as f32;
+            prop_assert_eq!(range_exponents(f), naive_exponents(f));
+        }
+
+        #[test]
+        fn exception_front_matches_direct_count(v in prop::collection::vec(decimalish(), 0..60)) {
+            let ws = words(&v);
+            prop_assert_eq!(exception_front::<f64>(&ws), naive_front::<f64>(&ws));
+        }
+
+        #[test]
+        fn exception_front_matches_direct_count_f32(v in prop::collection::vec(decimalish(), 0..60)) {
+            #[allow(clippy::cast_possible_truncation)]
+            let ws: Vec<u32> = v.iter().map(|&x| (x as f32).to_bits()).collect();
+            prop_assert_eq!(exception_front::<f32>(&ws), naive_front::<f32>(&ws));
+        }
+
+        #[test]
+        fn best_encoding_matches_exhaustive_search(v in prop::collection::vec(decimalish(), 1..80)) {
+            let ws = words(&v);
+            let (k, w) = best_encoding::<f64>(&ws);
+            prop_assert_eq!((k, w.bit_len()), naive_best::<f64>(&ws));
+        }
+
         #[test]
         fn any_f64_round_trips(v in prop::collection::vec(any::<u64>(), 1..100)) {
             let f: Vec<f64> = v.iter().map(|&b| f64::from_bits(b)).collect();

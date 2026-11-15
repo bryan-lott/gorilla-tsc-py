@@ -474,7 +474,51 @@ mod tests {
         best
     }
 
+    /// A value whose bit length is uniform in `0..=bits`, so every `k` sees
+    /// values that fit, that need a quotient, and that escape.
+    fn any_length(bits: u32) -> impl Strategy<Value = u64> {
+        (0..=bits, any::<u64>()).prop_map(move |(len, v)| match len {
+            0 => 0,
+            l => (v >> (64 - l)) | (1 << (l - 1)),
+        })
+    }
+
+    #[test]
+    fn escape_at_exactly_the_escape_quotient() {
+        // 100 zeros pin k = 0, so the outlier's quotient is its zig-zag value:
+        // 32 for u64 (escape_q), which must take the escape path.
+        let mut r = vec![0u64; 100];
+        r.push(16);
+        assert_eq!(RiceBlock::choose(&r).k, 0);
+        assert_eq!(escape_q::<u64>(), 32);
+        assert_eq!(round_trip(&r), r);
+        assert_eq!(encoded_bits(&r) as u64, RiceBlock::cost(&r, RiceBlock::choose(&r)));
+    }
+
     proptest! {
+        #[test]
+        fn costs_for_all_k_matches_per_value_sum_u64(zs in prop::collection::vec(any_length(64), 0..60)) {
+            let fast = costs_for_all_k::<u64>(&zs);
+            for k in 0..64 {
+                prop_assert_eq!(fast[k as usize], zs.iter().map(|&z| value_cost::<u64>(z, k)).sum::<u64>(), "k = {}", k);
+            }
+        }
+
+        #[test]
+        fn costs_for_all_k_matches_per_value_sum_u32(zs in prop::collection::vec(any_length(32), 0..60)) {
+            let fast = costs_for_all_k::<u32>(&zs);
+            for k in 0..32 {
+                prop_assert_eq!(fast[k as usize], zs.iter().map(|&z| value_cost::<u32>(z, k)).sum::<u64>(), "k = {}", k);
+            }
+        }
+
+        #[test]
+        fn choice_is_optimal_with_outliers(small in prop::collection::vec(-50i64..50, 1..100), big in prop::collection::vec(any::<i64>(), 0..4)) {
+            let r = signed(&[small, big].concat());
+            prop_assert_eq!(RiceBlock::cost(&r, RiceBlock::choose(&r)), brute_min(&r));
+            prop_assert_eq!(round_trip(&r), r);
+        }
+
         #[test]
         fn round_trip_u64(r in prop::collection::vec(any::<u64>(), 0..200)) {
             prop_assert_eq!(round_trip(&r), r);

@@ -284,6 +284,30 @@ mod tests {
         assert_eq!(decode(&encode(&events, 1), &events, 1), events);
     }
 
+    /// Bytes emitted by `shift_low` from a given state, then by a carrying shift.
+    fn shift_bytes(low: u64) -> Vec<u8> {
+        let mut out = BitWriter::new();
+        let mut e = RangeEncoder::new(&mut out);
+        e.first = false;
+        e.cache = 0x12;
+        e.low = low;
+        e.shift_low();
+        // Now force a carry out of the pending bytes.
+        e.low = 1 << 32;
+        e.shift_low();
+        out.finish()
+    }
+
+    #[test]
+    fn top_byte_ff_is_deferred_until_the_carry_is_known() {
+        // 0xFF in the top byte might still receive a carry, so the cached byte
+        // must wait: the carry then lands in 0x12 and the 0xFF wraps to 0x00.
+        assert_eq!(shift_bytes(0xFF00_0000), [0x13, 0x00]);
+        assert_eq!(shift_bytes(0xFFFF_FFFF), [0x13, 0x00]);
+        // Below 0xFF00_0000 no carry can reach the cached byte: flush it now.
+        assert_eq!(shift_bytes(0xFEFF_FFFF), [0x12, 0xFF]);
+    }
+
     #[test]
     fn carry_propagation_round_trips() {
         // Long runs of highly probable bits followed by improbable ones exercise carries.
