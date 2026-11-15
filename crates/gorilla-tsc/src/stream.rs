@@ -37,7 +37,7 @@ pub enum SampleType {
 }
 
 /// An element type that can be compressed. Sealed: the set is fixed by the format.
-pub trait Sample: Copy + fmt::Debug + sealed::Sealed + 'static {
+pub trait Sample: Copy + Send + Sync + fmt::Debug + sealed::Sealed + 'static {
     /// The word the codec works on.
     type Word: Word;
     /// Tag stored in the header.
@@ -477,6 +477,36 @@ pub fn encode<T: Sample>(items: &[T], config: Config) -> Vec<u8> {
     e.finish()
 }
 
+/// Compress `items` using up to `threads` threads. Blocks are independent, so
+/// the output is byte-for-byte identical to [`encode`].
+#[must_use]
+pub fn encode_parallel<T: Sample>(items: &[T], config: Config, threads: core::num::NonZeroUsize) -> Vec<u8> {
+    let interval = config.checkpoint_interval.get() as usize;
+    let blocks: Vec<&[T]> = items.chunks(interval).collect();
+    let per_thread = blocks.len().div_ceil(threads.get()).max(1);
+    let encode_run = |run: &[&[T]]| {
+        let mut out = BitWriter::new();
+        for block in run {
+            let words: Vec<T::Word> = block.iter().map(|x| x.to_word()).collect();
+            encode_block::<T>(config.mode, &words, &mut out);
+        }
+        out
+    };
+    let parts: Vec<BitWriter> = std::thread::scope(|s| {
+        let handles: Vec<_> = blocks.chunks(per_thread).map(|run| s.spawn(move || encode_run(run))).collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    });
+    let mut payload = BitWriter::new();
+    for p in &parts {
+        payload.append(p);
+    }
+    let header = Header { sample_type: T::TYPE, config, count: items.len() as u64 };
+    let mut bytes = Vec::with_capacity(16 + payload.bit_len() / 8);
+    header.write(&mut bytes);
+    bytes.extend(payload.finish());
+    bytes
+}
+
 /// Parse the header of `bytes`, returning it and the payload.
 ///
 /// # Errors
@@ -790,6 +820,18 @@ mod tests {
     }
 
     #[test]
+    fn parallel_encoding_matches_sequential() {
+        let v: Vec<f64> = (0..10_007).map(|i| f64::from(i % 311) / 10.0).collect();
+        let cfg = cfg(Mode::Auto, 100);
+        for t in [1, 2, 3, 8, 200] {
+            let threads = core::num::NonZeroUsize::new(t).unwrap();
+            assert_eq!(encode_parallel(&v, cfg, threads), encode(&v, cfg), "threads = {t}");
+        }
+        let one = core::num::NonZeroUsize::new(4).unwrap();
+        assert_eq!(encode_parallel::<i64>(&[], cfg, one), encode::<i64>(&[], cfg));
+    }
+
+    #[test]
     fn auto_candidates_by_sample_type() {
         // Decimal on integers is Delta plus a header, so it can never win.
         assert_eq!(i64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta]);
@@ -856,6 +898,12 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn parallel_matches_sequential(v in prop::collection::vec(any::<i64>(), 0..300), k in 1u32..40, t in 1usize..6, m in 0usize..MODES.len()) {
+            let c = cfg(MODES[m], k);
+            prop_assert_eq!(encode_parallel(&v, c, core::num::NonZeroUsize::new(t).unwrap()), encode(&v, c));
+        }
+
         #[test]
         fn blocks_are_independent(
             a in prop::collection::vec(any::<f64>(), 1..40),

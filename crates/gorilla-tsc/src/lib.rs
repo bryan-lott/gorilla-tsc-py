@@ -31,6 +31,6 @@ pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, estimate}
 pub use scheme::{DodScheme, DodXorScheme, Op, Scheme, Single, Stacked, Sub, Xor, XorDodScheme, XorScheme};
 pub use stream::{
     CheckpointInterval, Config, ConfigError, Decoded, Encoder, Header, MAGIC, Mode, Sample, SampleType, VERSION,
-    decode, decode_any, encode, read_header,
+    decode, decode_any, encode, encode_parallel, read_header,
 };
 pub use word::Word;
