@@ -5,16 +5,24 @@
 //! hard-coded bit count to disagree with the data it describes.
 
 mod bits;
+mod block;
 mod coder;
+mod decimal;
+mod delta;
 mod error;
 mod pairs;
+mod rice;
 mod scheme;
 mod stream;
 mod word;
 
 pub use bits::{BitReader, BitWriter};
+pub use block::{BlockCodec, PerItem};
+pub use decimal::{DecimalRice, Scaled};
+pub use delta::{DeltaRice, Order};
 pub use coder::{BucketCoder, ResidualCoder, XorCoder};
 pub use error::DecodeError;
+pub use rice::{RiceBlock, RiceParams, Transform};
 pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, estimate};
 pub use scheme::{DodScheme, DodXorScheme, Op, Scheme, Single, Stacked, Sub, Xor, XorDodScheme, XorScheme};
 pub use stream::{

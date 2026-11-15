@@ -31,6 +31,8 @@ pub trait Word:
     /// Inverse of [`Word::zigzag`].
     #[must_use]
     fn unzigzag(self) -> Self;
+    /// The two's-complement (signed) reading of `self`, widened.
+    fn to_signed_i128(self) -> i128;
 }
 
 macro_rules! impl_word {
@@ -64,6 +66,9 @@ macro_rules! impl_word {
             }
             fn unzigzag(self) -> Self {
                 (self >> 1) ^ (self & 1).wrapping_neg()
+            }
+            fn to_signed_i128(self) -> i128 {
+                i128::from(self.cast_signed())
             }
         }
     };
@@ -106,6 +111,15 @@ mod tests {
     fn wrapping_arithmetic() {
         assert_eq!(Word::wrapping_sub(0u32, 1), u32::MAX);
         assert_eq!(Word::wrapping_add(u64::MAX, 2), 1);
+    }
+
+    #[test]
+    fn signed_reading() {
+        assert_eq!(u64::MAX.to_signed_i128(), -1);
+        assert_eq!((1u64 << 63).to_signed_i128(), i128::from(i64::MIN));
+        assert_eq!(5u64.to_signed_i128(), 5);
+        assert_eq!(u32::MAX.to_signed_i128(), -1);
+        assert_eq!(0x7FFF_FFFFu32.to_signed_i128(), i128::from(i32::MAX));
     }
 
     #[test]

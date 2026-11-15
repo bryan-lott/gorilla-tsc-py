@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use gorilla_tsc::{CheckpointInterval, Config, Encoder, Mode, Sample, decode, encode};
 
 const BLOCK: u32 = 1000;
-const MODES: [Mode; 4] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor];
+const MODES: [Mode; 6] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal];
 
 fn column(path: &Path, col: usize) -> Vec<f64> {
     std::fs::read_to_string(path)
@@ -24,7 +24,7 @@ fn column(path: &Path, col: usize) -> Vec<f64> {
 }
 
 /// Days since 1970-01-01 for a proleptic Gregorian date.
-pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
@@ -33,7 +33,7 @@ pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-pub fn stock_timestamps(path: &Path) -> Vec<i64> {
+fn stock_timestamps(path: &Path) -> Vec<i64> {
     std::fs::read_to_string(path)
         .unwrap()
         .lines()
@@ -48,7 +48,7 @@ pub fn stock_timestamps(path: &Path) -> Vec<i64> {
 }
 
 /// Regular 10 s scrape interval in ms with small deterministic jitter.
-pub fn scrape_timestamps(n: usize) -> Vec<i64> {
+fn scrape_timestamps(n: usize) -> Vec<i64> {
     let mut x: u64 = 0x2545_F491_4F6C_DD1D;
     (0..n)
         .map(|i| {

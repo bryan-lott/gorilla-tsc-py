@@ -2,13 +2,16 @@
 //!
 //! Layout: `MAGIC, VERSION, descriptor, varint(checkpoint_interval), varint(count)`
 //! followed by the bit-packed payload. The descriptor byte is
-//! `sample_type << 2 | mode`; its high nibble is reserved and must be zero.
+//! `sample_type << 4 | mode`; its top two bits are reserved and must be zero.
 
 use core::fmt;
 use core::num::NonZeroU32;
 use core::str::FromStr;
 
-use crate::scheme::{DodScheme, DodXorScheme, Scheme, XorDodScheme, XorScheme};
+use crate::block::{BlockCodec, PerItem};
+use crate::decimal::DecimalRice;
+use crate::delta::DeltaRice;
+use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
 /// First byte of every stream.
@@ -43,14 +46,59 @@ pub trait Sample: Copy + fmt::Debug + sealed::Sealed + 'static {
     fn to_word(self) -> Self::Word;
     /// Inverse of [`Sample::to_word`].
     fn from_word(w: Self::Word) -> Self;
+    /// Largest decimal exponent worth trying (0 for integers).
+    const MAX_SCALE: i32;
+    /// `Some(n)` iff [`Sample::from_scaled`]`(n, k)` reproduces `self` bit for bit.
+    /// For floats `n` is `self * 10^k` rounded; integers only scale at `k = 0`.
+    fn to_scaled(self, k: i32) -> Option<i64>;
+    /// `n / 10^k` (or `n * 10^-k`) as `Self`.
+    fn from_scaled(n: i64, k: i32) -> Self;
+}
+
+/// Exact powers of ten representable in an `f64` (10^0 ..= 10^22).
+const POW10: [f64; 23] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18,
+    1e19, 1e20, 1e21, 1e22,
+];
+
+/// Integers of magnitude below 2^53 convert to `f64` exactly.
+const EXACT_INT: f64 = 9_007_199_254_740_992.0;
+
+fn pow10(k: i32) -> f64 {
+    POW10[k.unsigned_abs() as usize]
+}
+
+/// `v * 10^k` rounded, if it is a safely convertible integer.
+#[allow(clippy::cast_possible_truncation)] // |s| < 2^53 is checked first
+fn scaled_int(v: f64, k: i32) -> Option<i64> {
+    let s = if k >= 0 { v * pow10(k) } else { v / pow10(k) };
+    (s.abs() < EXACT_INT).then(|| s.round() as i64)
+}
+
+fn scale_f64(v: f64, k: i32) -> Option<i64> {
+    scaled_int(v, k).filter(|&n| unscale_f64(n, k).to_bits() == v.to_bits())
+}
+
+#[allow(clippy::cast_precision_loss)] // |n| < 2^53 whenever n came from scale_f64
+fn unscale_f64(n: i64, k: i32) -> f64 {
+    if k >= 0 { n as f64 / pow10(k) } else { n as f64 * pow10(k) }
 }
 
 macro_rules! impl_sample {
-    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr) => {
+    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $scale:expr, $unscale:expr) => {
         impl sealed::Sealed for $t {}
         impl Sample for $t {
             type Word = $w;
             const TYPE: SampleType = SampleType::$tag;
+            const MAX_SCALE: i32 = $max;
+            fn to_scaled(self, k: i32) -> Option<i64> {
+                let f: fn($t, i32) -> Option<i64> = $scale;
+                f(self, k)
+            }
+            fn from_scaled(n: i64, k: i32) -> Self {
+                let f: fn(i64, i32) -> $t = $unscale;
+                f(n, k)
+            }
             fn to_word(self) -> $w {
                 let f: fn($t) -> $w = $to;
                 f(self)
@@ -63,10 +111,21 @@ macro_rules! impl_sample {
     };
 }
 
-impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed);
-impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed);
-impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits);
-impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits);
+impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0,
+    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
+impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0,
+    |v, k| (k == 0).then_some(v), |n, _| n);
+impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, scale_f32, unscale_f32);
+impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, scale_f64, unscale_f64);
+
+fn scale_f32(v: f32, k: i32) -> Option<i64> {
+    scaled_int(f64::from(v), k).filter(|&n| unscale_f32(n, k).to_bits() == v.to_bits())
+}
+
+#[allow(clippy::cast_possible_truncation)] // checked by the round trip in scale_f32
+fn unscale_f32(n: i64, k: i32) -> f32 {
+    unscale_f64(n, k) as f32
+}
 
 /// How consecutive items are predicted. See [`crate::scheme`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,6 +138,11 @@ pub enum Mode {
     XorDod,
     /// XOR, then difference of consecutive XORs.
     DodXor,
+    /// First or second differences (chosen per block), Rice coded.
+    Delta,
+    /// Floats scaled to integers by a per-block power of ten, then delta coded.
+    /// Values that do not scale exactly are stored verbatim. Integers: as `Delta`.
+    Decimal,
 }
 
 /// Items per independently decodable block. Never zero.
@@ -163,9 +227,11 @@ impl Mode {
             Self::Dod => "dod",
             Self::XorDod => "xor_dod",
             Self::DodXor => "dod_xor",
+            Self::Delta => "delta",
+            Self::Decimal => "decimal",
         }
     }
-    const ALL: [Self; 4] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor];
+    const ALL: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
 }
 
 impl FromStr for Mode {
@@ -224,38 +290,34 @@ impl Config {
     }
 }
 
-/// Runtime-selected scheme state for one block.
-enum AnyScheme<W> {
-    Xor(XorScheme<W>),
-    Dod(DodScheme<W>),
-    XorDod(XorDodScheme<W>),
-    DodXor(DodXorScheme<W>),
+/// Encode one block with the codec for `mode`.
+fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
+    type W<T> = <T as Sample>::Word;
+    match mode {
+        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
+        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().encode_block(items, out),
+        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().encode_block(items, out),
+        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
+        Mode::Delta => DeltaRice.encode_block(items, out),
+        Mode::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+    }
 }
 
-impl<W: Word> AnyScheme<W> {
-    fn new(mode: Mode) -> Self {
-        match mode {
-            Mode::Xor => Self::Xor(XorScheme::default()),
-            Mode::Dod => Self::Dod(DodScheme::default()),
-            Mode::XorDod => Self::XorDod(XorDodScheme::default()),
-            Mode::DodXor => Self::DodXor(DodXorScheme::default()),
-        }
-    }
-    fn encode(&mut self, out: &mut BitWriter, w: W) {
-        match self {
-            Self::Xor(s) => s.encode(out, w),
-            Self::Dod(s) => s.encode(out, w),
-            Self::XorDod(s) => s.encode(out, w),
-            Self::DodXor(s) => s.encode(out, w),
-        }
-    }
-    fn decode(&mut self, input: &mut BitReader<'_>) -> Result<W, DecodeError> {
-        match self {
-            Self::Xor(s) => s.decode(input),
-            Self::Dod(s) => s.decode(input),
-            Self::XorDod(s) => s.decode(input),
-            Self::DodXor(s) => s.decode(input),
-        }
+/// Decode one block of `n` items with the codec for `mode`.
+fn decode_block<T: Sample>(
+    mode: Mode,
+    n: usize,
+    input: &mut BitReader<'_>,
+    out: &mut Vec<T::Word>,
+) -> Result<(), DecodeError> {
+    type W<T> = <T as Sample>::Word;
+    match mode {
+        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().decode_block(n, input, out),
+        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().decode_block(n, input, out),
+        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().decode_block(n, input, out),
+        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
+        Mode::Delta => DeltaRice.decode_block(n, input, out),
+        Mode::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
     }
 }
 
@@ -297,7 +359,7 @@ impl Header {
     fn descriptor(&self) -> u8 {
         let t = SampleType::ALL.iter().position(|&t| t == self.sample_type).unwrap_or_default();
         let m = Mode::ALL.iter().position(|&m| m == self.config.mode).unwrap_or_default();
-        u8::try_from(t << 2 | m).unwrap_or_default()
+        u8::try_from(t << 4 | m).unwrap_or_default()
     }
 
     fn write(&self, out: &mut Vec<u8>) {
@@ -307,11 +369,12 @@ impl Header {
     }
 }
 
-/// Streaming encoder. Push items, then [`Encoder::finish`].
+/// Streaming encoder. Push items, then [`Encoder::finish`]. Items are
+/// buffered until a block is complete, then compressed together.
 pub struct Encoder<T: Sample> {
     config: Config,
     out: BitWriter,
-    scheme: AnyScheme<T::Word>,
+    block: Vec<T::Word>,
     count: u64,
 }
 
@@ -319,16 +382,17 @@ impl<T: Sample> Encoder<T> {
     /// New empty stream.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self { config, out: BitWriter::new(), scheme: AnyScheme::new(config.mode), count: 0 }
+        Self { config, out: BitWriter::new(), block: Vec::new(), count: 0 }
     }
 
     /// Append one item.
     pub fn push(&mut self, item: T) {
-        if self.count.is_multiple_of(u64::from(self.config.checkpoint_interval.get())) {
-            self.scheme = AnyScheme::new(self.config.mode);
-        }
-        self.scheme.encode(&mut self.out, item.to_word());
+        self.block.push(item.to_word());
         self.count += 1;
+        if self.block.len() == self.config.checkpoint_interval.get() as usize {
+            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
+            self.block.clear();
+        }
     }
 
     /// Items pushed so far.
@@ -346,12 +410,19 @@ impl<T: Sample> Encoder<T> {
     /// Payload size so far, excluding the header.
     #[must_use]
     pub fn payload_bits(&self) -> usize {
-        self.out.bit_len()
+        let mut pending = BitWriter::new();
+        if !self.block.is_empty() {
+            encode_block::<T>(self.config.mode, &self.block, &mut pending);
+        }
+        self.out.bit_len() + pending.bit_len()
     }
 
     /// Header followed by the payload.
     #[must_use]
-    pub fn finish(self) -> Vec<u8> {
+    pub fn finish(mut self) -> Vec<u8> {
+        if !self.block.is_empty() {
+            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
+        }
         let header = Header { sample_type: T::TYPE, config: self.config, count: self.count };
         let mut bytes = Vec::with_capacity(16 + self.out.bit_len() / 8);
         header.write(&mut bytes);
@@ -383,11 +454,11 @@ pub fn read_header(mut bytes: &[u8]) -> Result<(Header, &[u8]), DecodeError> {
         return Err(DecodeError::UnsupportedVersion(version));
     }
     let descriptor = take_byte(&mut bytes)?;
-    if descriptor >> 4 != 0 {
+    if descriptor >> 6 != 0 {
         return Err(DecodeError::InvalidHeader("reserved descriptor bits set"));
     }
-    let sample_type = SampleType::ALL[usize::from(descriptor >> 2)];
-    let mode = Mode::ALL[usize::from(descriptor & 0b11)];
+    let sample_type = SampleType::ALL[usize::from(descriptor >> 4)];
+    let mode = *Mode::ALL.get(usize::from(descriptor & 0x0F)).ok_or(DecodeError::InvalidHeader("unknown mode"))?;
     let checkpoint_interval = u32::try_from(read_varint(&mut bytes)?)
         .ok()
         .and_then(CheckpointInterval::new)
@@ -410,14 +481,14 @@ pub fn decode<T: Sample>(bytes: &[u8]) -> Result<Vec<T>, DecodeError> {
     let mut input = BitReader::new(payload);
     // Every item costs at least one bit, so a lying count cannot force a huge allocation.
     let cap = usize::try_from(header.count).unwrap_or(usize::MAX).min(payload.len() * 8);
-    let mut items = Vec::with_capacity(cap);
-    let mut scheme = AnyScheme::new(header.config.mode);
-    for i in 0..header.count {
-        if i.is_multiple_of(interval) {
-            scheme = AnyScheme::new(header.config.mode);
-        }
-        items.push(T::from_word(scheme.decode(&mut input)?));
+    let mut words = Vec::with_capacity(cap);
+    let mut remaining = header.count;
+    while remaining > 0 {
+        let n = remaining.min(interval);
+        decode_block::<T>(header.config.mode, usize::try_from(n).unwrap_or(usize::MAX), &mut input, &mut words)?;
+        remaining -= n;
     }
+    let items = words.into_iter().map(T::from_word).collect();
     let rest = input.remaining();
     if rest >= 8 || input.read(u32::try_from(rest).unwrap_or(u32::MAX))? != 0 {
         return Err(DecodeError::Corrupt("trailing data after last item"));
@@ -456,7 +527,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 4] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor];
+    const MODES: [Mode; 6] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal];
 
     fn cfg(mode: Mode, interval: u32) -> Config {
         Config::new(mode).with_interval(CheckpointInterval::new(interval).unwrap())
@@ -482,7 +553,7 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal"], MODES.map(Mode::name));
     }
 
     #[test]
@@ -501,7 +572,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal' (got 'rle')".into()))
         );
     }
 
@@ -520,10 +591,10 @@ mod tests {
     #[test]
     fn header_layout() {
         let bytes = encode::<i64>(&[], cfg(Mode::Dod, 300));
-        // magic, version, I64<<2 | Dod, varint(300) = AC 02, varint(0)
-        assert_eq!(bytes, vec![b'G', 1, 0b0101, 0xAC, 0x02, 0x00]);
+        // magic, version, I64 << 4 | Dod, varint(300) = AC 02, varint(0)
+        assert_eq!(bytes, vec![b'G', 1, 0x11, 0xAC, 0x02, 0x00]);
         let bytes = encode::<f32>(&[1.5], cfg(Mode::DodXor, 1));
-        let mut expected = vec![b'G', 1, 0b1011, 1, 1];
+        let mut expected = vec![b'G', 1, 0x23, 1, 1];
         expected.extend(1.5f32.to_bits().to_be_bytes());
         assert_eq!(bytes, expected);
     }
@@ -541,7 +612,8 @@ mod tests {
         assert_eq!(read_header(b"X"), Err(DecodeError::BadMagic));
         assert_eq!(read_header(b"G"), Err(DecodeError::UnexpectedEof));
         assert_eq!(read_header(&[b'G', 2, 0, 1, 0]), Err(DecodeError::UnsupportedVersion(2)));
-        assert_eq!(read_header(&[b'G', 1, 0x10, 1, 0]), Err(DecodeError::InvalidHeader("reserved descriptor bits set")));
+        assert_eq!(read_header(&[b'G', 1, 0x40, 1, 0]), Err(DecodeError::InvalidHeader("reserved descriptor bits set")));
+        assert_eq!(read_header(&[b'G', 1, 0x0F, 1, 0]), Err(DecodeError::InvalidHeader("unknown mode")));
         assert_eq!(read_header(&[b'G', 1, 0, 0, 0]), Err(DecodeError::InvalidHeader("checkpoint interval out of range")));
         assert_eq!(read_header(&[b'G', 1, 0, 0x80]), Err(DecodeError::UnexpectedEof));
         let too_long = [b'G', 1, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01];
@@ -581,7 +653,7 @@ mod tests {
     fn every_descriptor_decodes() {
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
             for (mi, m) in MODES.into_iter().enumerate() {
-                let d = u8::try_from(ti << 2 | mi).unwrap();
+                let d = u8::try_from(ti << 4 | mi).unwrap();
                 let (h, _) = read_header(&[b'G', 1, d, 5, 0]).unwrap();
                 assert_eq!((h.sample_type, h.config.mode), (t, m));
             }
@@ -613,7 +685,7 @@ mod tests {
 
     #[test]
     fn huge_claimed_count_fails_without_allocating() {
-        let bytes = [b'G', 1, 0b0101, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
+        let bytes = [b'G', 1, 0x11, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
         assert_eq!(decode::<i64>(&bytes), Err(DecodeError::UnexpectedEof));
     }
 
@@ -643,6 +715,24 @@ mod tests {
     }
 
     #[test]
+    fn decimal_mode_beats_xor_on_decimal_data() {
+        let v: Vec<f64> = (0..2000).map(|i| f64::from(150 + (i * 37) % 41) / 10.0).collect();
+        let xor = payload_bits(&v, Config::new(Mode::Xor));
+        let dec = payload_bits(&v, Config::new(Mode::Decimal));
+        assert!(dec * 3 < xor, "decimal {dec} vs xor {xor}");
+        assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+    }
+
+    #[test]
+    fn decimal_mode_on_integers_matches_delta() {
+        let v: Vec<i64> = (0..500).map(|i| 1000 + 3 * i + i % 4).collect();
+        let delta = payload_bits(&v, Config::new(Mode::Delta));
+        // per block of 100: 6-bit exponent + 7-bit (empty) exception count
+        assert_eq!(payload_bits(&v, Config::new(Mode::Decimal)), delta + 5 * (6 + 7));
+        assert_eq!(decode::<i64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+    }
+
+    #[test]
     fn nan_payloads_and_signed_zero_survive() {
         let v = [f64::from_bits(0x7FF8_0000_0000_0001), -0.0, 0.0, f64::INFINITY, f64::NEG_INFINITY];
         for m in MODES {
@@ -658,7 +748,7 @@ mod tests {
     macro_rules! props {
         ($($name:ident: $t:ty;)*) => { proptest! { $(
             #[test]
-            fn $name(v in prop::collection::vec(any::<$t>(), 0..150), m in 0usize..4, k in 1u32..20) {
+            fn $name(v in prop::collection::vec(any::<$t>(), 0..150), m in 0usize..MODES.len(), k in 1u32..20) {
                 let c = cfg(MODES[m], k);
                 let bytes = encode(&v, c);
                 let out = decode::<$t>(&bytes).unwrap();
@@ -683,7 +773,7 @@ mod tests {
         fn blocks_are_independent(
             a in prop::collection::vec(any::<f64>(), 1..40),
             b in prop::collection::vec(any::<f64>(), 1..40),
-            m in 0usize..4,
+            m in 0usize..MODES.len(),
         ) {
             let k = u32::try_from(a.len()).unwrap();
             let joined: Vec<f64> = a.iter().chain(&b).copied().collect();
