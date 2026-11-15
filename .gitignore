@@ -12,3 +12,4 @@ mutants/
 target/
 *.so
 *.pyd
+bench-data/
