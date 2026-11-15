@@ -60,22 +60,23 @@ const fn k_bits<W: Word>() -> u32 {
 impl<W: Word> RiceParams<W> {
     /// The unsigned value coded for residual `r` (which `scale` divides).
     fn map(self, r: W) -> u64 {
-        match self.transform {
-            Transform::ZigZag => {
-                W::from_i128_truncate(r.to_signed_i128() / i128::from(self.scale)).zigzag().to_u64()
-            }
-            Transform::Offset => r.wrapping_sub(self.base).to_u64() / self.scale,
+        match (self.transform, self.scale) {
+            (Transform::ZigZag, 1) => r.zigzag().to_u64(),
+            (Transform::ZigZag, g) => W::from_i128_truncate(r.to_signed_i128() / i128::from(g)).zigzag().to_u64(),
+            (Transform::Offset, 1) => r.wrapping_sub(self.base).to_u64(),
+            (Transform::Offset, g) => r.wrapping_sub(self.base).to_u64() / g,
         }
     }
 
     /// Inverse of [`RiceParams::map`].
     fn unmap(self, z: u64) -> W {
-        match self.transform {
-            Transform::ZigZag => {
+        match (self.transform, self.scale) {
+            (Transform::ZigZag, 1) => W::from_u64_truncate(z).unzigzag(),
+            (Transform::ZigZag, g) => {
                 let q = W::from_u64_truncate(z).unzigzag().to_signed_i128();
-                W::from_i128_truncate(q.wrapping_mul(i128::from(self.scale)))
+                W::from_i128_truncate(q.wrapping_mul(i128::from(g)))
             }
-            Transform::Offset => W::from_u64_truncate(z.wrapping_mul(self.scale)).wrapping_add(self.base),
+            (Transform::Offset, g) => W::from_u64_truncate(z.wrapping_mul(g)).wrapping_add(self.base),
         }
     }
 
@@ -98,13 +99,18 @@ const fn gcd(mut a: u64, mut b: u64) -> u64 {
 
 /// Common divisor of the values `transform` maps `residuals` to before scaling.
 fn common_divisor<W: Word>(residuals: &[W], transform: Transform, base: W) -> u64 {
-    residuals.iter().fold(0, |g, &r| {
+    let mut g = 0;
+    for &r in residuals {
         let v = match transform {
             Transform::ZigZag => u64::try_from(r.to_signed_i128().unsigned_abs()).unwrap_or(0),
             Transform::Offset => r.wrapping_sub(base).to_u64(),
         };
-        gcd(g, v)
-    })
+        g = gcd(g, v);
+        if g == 1 {
+            break; // cannot shrink further
+        }
+    }
+    g
 }
 
 /// Common divisor of the signed magnitudes of `residuals` (0 if all are zero).

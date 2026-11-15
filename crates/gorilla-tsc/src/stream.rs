@@ -48,6 +48,8 @@ pub trait Sample: Copy + fmt::Debug + sealed::Sealed + 'static {
     fn from_word(w: Self::Word) -> Self;
     /// Largest decimal exponent worth trying (0 for integers).
     const MAX_SCALE: i32;
+    /// Modes [`Mode::Auto`] tries for this type.
+    const AUTO: &'static [Mode];
     /// `Some(n)` iff [`Sample::from_scaled`]`(n, k)` reproduces `self` bit for bit.
     /// For floats `n` is `self * 10^k` rounded; integers only scale at `k = 0`.
     fn to_scaled(self, k: i32) -> Option<i64>;
@@ -85,12 +87,13 @@ fn unscale_f64(n: i64, k: i32) -> f64 {
 }
 
 macro_rules! impl_sample {
-    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $scale:expr, $unscale:expr) => {
+    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $auto:expr, $scale:expr, $unscale:expr) => {
         impl sealed::Sealed for $t {}
         impl Sample for $t {
             type Word = $w;
             const TYPE: SampleType = SampleType::$tag;
             const MAX_SCALE: i32 = $max;
+            const AUTO: &'static [Mode] = $auto;
             fn to_scaled(self, k: i32) -> Option<i64> {
                 let f: fn($t, i32) -> Option<i64> = $scale;
                 f(self, k)
@@ -111,12 +114,18 @@ macro_rules! impl_sample {
     };
 }
 
-impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0,
+/// Decimal on integers is `Delta` plus a header, so it can never win.
+const INT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta];
+/// Delta on raw float bits essentially never beats `Decimal` (measured on the
+/// benchmark datasets: it won only constant runs, by the decimal header).
+const FLOAT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal];
+
+impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
     |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
-impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0,
+impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0, INT_AUTO,
     |v, k| (k == 0).then_some(v), |n, _| n);
-impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, scale_f32, unscale_f32);
-impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, scale_f64, unscale_f64);
+impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32);
+impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64);
 
 fn scale_f32(v: f32, k: i32) -> Option<i64> {
     scaled_int(f64::from(v), k).filter(|&n| unscale_f32(n, k).to_bits() == v.to_bits())
@@ -306,16 +315,16 @@ fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
         Mode::Delta => DeltaRice.encode_block(items, out),
         Mode::Decimal => DecimalRice::<T>::default().encode_block(items, out),
         Mode::Auto => {
-            let (index, best) = Mode::CONCRETE
+            let (mode, best) = T::AUTO
                 .iter()
                 .map(|&m| {
                     let mut w = BitWriter::new();
                     encode_block::<T>(m, items, &mut w);
-                    w
+                    (m, w)
                 })
-                .enumerate()
                 .min_by_key(|(_, w)| w.bit_len())
-                .unwrap_or_default();
+                .unwrap_or((Mode::Xor, BitWriter::new()));
+            let index = Mode::CONCRETE.iter().position(|&m| m == mode).unwrap_or(0);
             out.write(index as u64, AUTO_SELECTOR_BITS);
             out.append(&best);
         }
@@ -772,12 +781,32 @@ mod tests {
         }));
         let per_block: usize = v
             .chunks(100)
-            .map(|b| 3 + Mode::CONCRETE.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .map(|b| 3 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
         let best_single = Mode::CONCRETE.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
         assert!(per_block < best_single);
         assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Auto))), Ok(v));
+    }
+
+    #[test]
+    fn auto_candidates_by_sample_type() {
+        // Decimal on integers is Delta plus a header, so it can never win.
+        assert_eq!(i64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta]);
+        assert_eq!(i32::AUTO, i64::AUTO);
+        // Raw-bit Delta essentially never beats Decimal on floats.
+        assert_eq!(f64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal]);
+        assert_eq!(f32::AUTO, f64::AUTO);
+    }
+
+    #[test]
+    fn auto_on_integers_matches_best_integer_mode() {
+        let v: Vec<i64> = (0..300).map(|i| 1_700_000_000 + 10 * i + i % 3).collect();
+        let per_block: usize = v
+            .chunks(100)
+            .map(|b| 3 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .sum();
+        assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
     }
 
     #[test]

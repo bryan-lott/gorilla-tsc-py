@@ -66,7 +66,7 @@ impl AdaptiveBlock {
         let mut coder = RangeEncoder::new(out);
         let mut ctx_class = 0;
         for &residual in residuals {
-            let value = residual.to_signed_i128() / i128::from(scale);
+            let value = if scale == 1 { residual.to_signed_i128() } else { residual.to_signed_i128() / i128::from(scale) };
             let (mag, len) = magnitude(value);
             coder.bit(&mut model.zero[ctx_class], mag != 0);
             if mag != 0 {
@@ -132,7 +132,7 @@ impl AdaptiveBlock {
                 mag = (mag << rest) | coder.direct(rest)?;
             }
             let value = if negative { -i128::from(mag) } else { i128::from(mag) };
-            out.push(W::from_i128_truncate(value.wrapping_mul(i128::from(scale))));
+            out.push(W::from_i128_truncate(if scale == 1 { value } else { value.wrapping_mul(i128::from(scale)) }));
             ctx_class = class(mag);
         }
         Ok(())
