@@ -10,6 +10,7 @@ import pytest
 
 from gorilla_tsc_py import (
     DecodeError,
+    encode,
     PairsDecoder,
     PairsEncoder,
     TimestampsDecoder,
@@ -22,7 +23,7 @@ from gorilla_tsc_py import (
     inspect,
 )
 
-MODES = ["xor", "dod", "xor_dod", "dod_xor"]
+MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"]
 
 
 # --- configuration -----------------------------------------------------------
@@ -35,7 +36,7 @@ MODES = ["xor", "dod", "xor_dod", "dod_xor"]
         ({"precision": "f64"}, "timestamp precision must be 'int32' or 'int64' (got 'f64')"),
         ({"checkpoint_interval": 0}, "checkpoint interval must be between 1 and 4294967295 (got 0)"),
         ({"checkpoint_interval": 2**32}, "checkpoint interval must be between 1 and 4294967295 (got 4294967296)"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')"),
     ],
 )
 def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
@@ -49,7 +50,7 @@ def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
     [
         ({"precision": "f16"}, "value precision must be 'f32' or 'f64' (got 'f16')"),
         ({"precision": "int64"}, "value precision must be 'f32' or 'f64' (got 'int64')"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')"),
         ({"checkpoint_interval": -1}, "checkpoint interval must be between 1 and 4294967295 (got -1)"),
     ],
 )
@@ -85,14 +86,14 @@ def test_result_metadata_reflects_config():
 
 def test_defaults():
     assert inspect(TimestampsEncoder().encode_all([1])) == {
-        "version": 1, "precision": "int64", "mode": "dod", "checkpoint_interval": 100, "count": 1,
+        "version": 1, "precision": "int64", "mode": "auto", "checkpoint_interval": 100, "count": 1,
     }
     assert inspect(ValuesEncoder().encode_all([1.0])) == {
-        "version": 1, "precision": "f64", "mode": "xor", "checkpoint_interval": 100, "count": 1,
+        "version": 1, "precision": "f64", "mode": "auto", "checkpoint_interval": 100, "count": 1,
     }
     r = PairsEncoder().encode_all([(1, 1.0)])
     assert (r["ts_precision"], r["val_precision"], r["ts_mode"], r["val_mode"], r["checkpoint_interval"]) == (
-        "int64", "f64", "dod", "xor", 100,
+        "int64", "f64", "auto", "auto", 100,
     )
 
 
@@ -235,7 +236,8 @@ def test_decode_error_is_a_value_error():
         (b"", "unexpected end of stream"),
         (b"X", "not a gorilla-tsc stream (bad magic)"),
         (b"G\x09", "unsupported format version 9"),
-        (b"G\x01\x10\x01\x00", "invalid header: reserved descriptor bits set"),
+        (b"G\x01\x40\x01\x00", "invalid header: reserved descriptor bits set"),
+        (b"G\x01\x0f\x01\x00", "invalid header: unknown mode"),
     ],
 )
 def test_malformed_streams_raise_decode_error(data, msg):
@@ -282,13 +284,20 @@ def test_decode_returns_native_python_types():
 
 def test_estimate_ts_compression():
     # payload: 64 bits + 9 for the first delta-of-delta + 8 x 1 bit = 81 bits -> 11 bytes
-    assert estimate_ts_compression(list(range(1000, 1010))) == {
+    assert estimate_ts_compression(list(range(1000, 1010)), mode="dod") == {
         "ratio": 80 / 11, "compressed_size": 11, "bits_per_item": 8.1,
     }
 
 
+def test_estimates_default_to_auto():
+    ts = list(range(1000, 1010))
+    assert estimate_ts_compression(ts) == estimate_ts_compression(ts, mode="auto")
+    vals = [1.0] * 9
+    assert estimate_val_compression(vals) == estimate_val_compression(vals, mode="auto")
+
+
 def test_estimate_ts_compression_options():
-    assert estimate_ts_compression([5, 5], precision="int32", checkpoint_interval=1) == {
+    assert estimate_ts_compression([5, 5], precision="int32", checkpoint_interval=1, mode="dod") == {
         "ratio": 1.0, "compressed_size": 8, "bits_per_item": 32.0,
     }
     xor = estimate_ts_compression(list(range(0, 300, 3)), mode="xor")
@@ -297,7 +306,7 @@ def test_estimate_ts_compression_options():
 
 
 def test_estimate_val_compression():
-    assert estimate_val_compression([1.0] * 9) == {"ratio": 8.0, "compressed_size": 9, "bits_per_item": 8.0}
+    assert estimate_val_compression([1.0] * 9, mode="xor") == {"ratio": 8.0, "compressed_size": 9, "bits_per_item": 8.0}
     assert estimate_val_compression([1.0, 1.0], mode="dod", precision="f32", checkpoint_interval=1) == {
         "ratio": 1.0, "compressed_size": 8, "bits_per_item": 32.0,
     }
@@ -313,3 +322,39 @@ def test_estimate_type_checks():
         estimate_ts_compression([1.0])
     with pytest.raises(TypeError):
         estimate_val_compression([1])
+
+
+# --- one-shot encode ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("threads", [1, 2, 7])
+def test_encode_matches_encoder_classes(threads):
+    vals = [x / 10 for x in range(2500)]
+    assert encode(vals, threads=threads) == ValuesEncoder().encode_all(vals)["encoded"]
+    ts = list(range(0, 25_000, 10))
+    assert encode(ts, precision="int64", threads=threads) == TimestampsEncoder().encode_all(ts)["encoded"]
+
+
+def test_encode_options():
+    data = encode([1.5, 2.5], precision="f32", mode="decimal", checkpoint_interval=7)
+    assert inspect(data) == {"version": 1, "precision": "f32", "mode": "decimal", "checkpoint_interval": 7, "count": 2}
+    assert decode(data) == [1.5, 2.5]
+    assert decode(encode([3, -4], precision="int32")) == [3, -4]
+
+
+def test_encode_infers_nothing_and_validates():
+    with pytest.raises(TypeError, match="^All values must be floats$"):
+        encode([1, 2])  # default precision is f64
+    with pytest.raises(TypeError, match="^All timestamps must be ints$"):
+        encode([1.0], precision="int64")
+    with pytest.raises(ValueError, match="^precision must be one of 'int32', 'int64', 'f32', 'f64' \\(got 'f16'\\)$"):
+        encode([1.0], precision="f16")
+    with pytest.raises(ValueError, match="^threads must be at least 1$"):
+        encode([1.0], threads=0)
+
+
+def test_decimal_and_auto_compress_decimal_data_far_better_than_xor():
+    vals = [round(20 + (i * 37 % 23) / 10, 1) for i in range(5000)]
+    xor = len(encode(vals, mode="xor"))
+    assert len(encode(vals, mode="decimal")) * 4 < xor
+    assert len(encode(vals)) * 4 < xor  # auto is the default

@@ -157,7 +157,7 @@ struct TimestampsEncoder {
 #[pymethods]
 impl TimestampsEncoder {
     #[new]
-    #[pyo3(signature = (precision = "int64", checkpoint_interval = 100, mode = "dod"))]
+    #[pyo3(signature = (precision = "int64", checkpoint_interval = 100, mode = "auto"))]
     fn new(precision: &str, checkpoint_interval: i64, mode: &str) -> PyResult<Self> {
         let precision = IntType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
@@ -188,10 +188,11 @@ impl TimestampsEncoder {
 
     /// Finish the stream and return the encoded result.
     fn finish<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let (count, bytes) = match self.inner.take().ok_or_else(finished)? {
+        let inner = self.inner.take().ok_or_else(finished)?;
+        let (count, bytes) = py.detach(|| match inner {
             TsEncoder::I32(e) => (e.len(), e.finish()),
             TsEncoder::I64(e) => (e.len(), e.finish()),
-        };
+        });
         result_dict(py, &bytes, "nb_timestamps", count, self.precision.name(), self.config)
     }
 }
@@ -250,7 +251,7 @@ struct ValuesEncoder {
 #[pymethods]
 impl ValuesEncoder {
     #[new]
-    #[pyo3(signature = (precision = "f64", mode = "xor", checkpoint_interval = 100))]
+    #[pyo3(signature = (precision = "f64", mode = "auto", checkpoint_interval = 100))]
     fn new(precision: &str, mode: &str, checkpoint_interval: i64) -> PyResult<Self> {
         let precision = FloatType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
@@ -283,10 +284,11 @@ impl ValuesEncoder {
 
     /// Finish the stream and return the encoded result.
     fn finish<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let (count, bytes) = match self.inner.take().ok_or_else(finished)? {
+        let inner = self.inner.take().ok_or_else(finished)?;
+        let (count, bytes) = py.detach(|| match inner {
             ValEncoder::F32(e) => (e.len(), e.finish()),
             ValEncoder::F64(e) => (e.len(), e.finish()),
-        };
+        });
         result_dict(py, &bytes, "nb_values", count, self.precision.name(), self.config)
     }
 }
@@ -353,8 +355,8 @@ fn narrow_val<T: Copy>(pairs: &[(T, f64)]) -> Vec<(T, f32)> {
 impl PairsEncoder {
     #[new]
     #[pyo3(signature = (
-        ts_precision = "int64", val_precision = "f64", val_mode = "xor",
-        checkpoint_interval = 100, ts_mode = "dod",
+        ts_precision = "int64", val_precision = "f64", val_mode = "auto",
+        checkpoint_interval = 100, ts_mode = "auto",
     ))]
     fn new(
         ts_precision: &str,
@@ -431,7 +433,7 @@ fn estimate_dict(py: Python<'_>, e: gt::Estimate) -> PyResult<Bound<'_, PyDict>>
 
 /// Estimate compression of integer timestamps from their first 1000 items.
 #[pyfunction]
-#[pyo3(signature = (data, precision = "int64", checkpoint_interval = 100, mode = "dod"))]
+#[pyo3(signature = (data, precision = "int64", checkpoint_interval = 100, mode = "auto"))]
 fn estimate_ts_compression<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
@@ -449,7 +451,7 @@ fn estimate_ts_compression<'py>(
 
 /// Estimate compression of float values from their first 1000 items.
 #[pyfunction]
-#[pyo3(signature = (data, mode = "xor", precision = "f64", checkpoint_interval = 100))]
+#[pyo3(signature = (data, mode = "auto", precision = "f64", checkpoint_interval = 100))]
 fn estimate_val_compression<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
@@ -465,6 +467,45 @@ fn estimate_val_compression<'py>(
         FloatType::F64 => gt::estimate(&v, config),
     };
     estimate_dict(py, e)
+}
+
+/// Compress `values` in one call, optionally across `threads` threads (the
+/// output does not depend on the thread count). Returns the encoded bytes.
+#[pyfunction]
+#[pyo3(signature = (values, precision = "f64", mode = "auto", checkpoint_interval = 100, threads = 1))]
+fn encode<'py>(
+    py: Python<'py>,
+    values: &Bound<'py, PyAny>,
+    precision: &str,
+    mode: &str,
+    checkpoint_interval: i64,
+    threads: i64,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let config = parse_config(mode, checkpoint_interval)?;
+    let threads = usize::try_from(threads)
+        .ok()
+        .and_then(std::num::NonZeroUsize::new)
+        .ok_or_else(|| PyValueError::new_err("threads must be at least 1"))?;
+    let precision: SampleType = precision.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
+    let bytes = match precision {
+        SampleType::I32 => {
+            let v = ints::<i32>(values, TS_MSG)?;
+            py.detach(|| gt::encode_parallel(&v, config, threads))
+        }
+        SampleType::I64 => {
+            let v = ints::<i64>(values, TS_MSG)?;
+            py.detach(|| gt::encode_parallel(&v, config, threads))
+        }
+        SampleType::F32 => {
+            let v: Vec<f32> = floats(values, VAL_MSG)?.into_iter().map(to_f32).collect();
+            py.detach(|| gt::encode_parallel(&v, config, threads))
+        }
+        SampleType::F64 => {
+            let v = floats(values, VAL_MSG)?;
+            py.detach(|| gt::encode_parallel(&v, config, threads))
+        }
+    };
+    Ok(PyBytes::new(py, &bytes))
 }
 
 /// Decode any stream to a list of ints or floats, as its header says.
@@ -497,6 +538,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PairsDecoder>()?;
     m.add_function(wrap_pyfunction!(estimate_ts_compression, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_val_compression, m)?)?;
+    m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(inspect, m)?)?;
     Ok(())
