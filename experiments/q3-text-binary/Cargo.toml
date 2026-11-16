@@ -1,0 +1,20 @@
+[package]
+name = "q3-text-binary"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gorilla-tsc = { path = "../../crates/gorilla-tsc" }
+rayon = "1"
+serde_json = "1"
+xz2 = "0.1"
+zstd = "0.13"
+
+[profile.release]
+opt-level = 3
+debug = false
+codegen-units = 1
+lto = "thin"

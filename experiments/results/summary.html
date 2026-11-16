@@ -1,0 +1,159 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gorilla-tsc overnight research</title><style>
+:root{--bg:#fbfbfd;--fg:#1d1d24;--mut:#5f6170;--card:#fff;--bd:#e3e4ea;--acc:#3b5bdb;--good:#1f8f4e;--bad:#c0392b;--bar:#c9d3ff}
+@media (prefers-color-scheme:dark){:root{--bg:#14151a;--fg:#e8e8ee;--mut:#9a9cab;--card:#1c1d24;--bd:#2c2e38;--acc:#8ea2ff;--good:#4cd187;--bad:#ff7a6b;--bar:#34407a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:21px;margin:42px 0 8px;padding-top:12px;border-top:1px solid var(--bd)}
+h3{font-size:16px;margin:24px 0 6px}p,li{max-width:900px}.sub{color:var(--mut);margin:0 0 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15px}.card .big{font-size:22px;font-weight:650;color:var(--acc)}
+table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--bd);border-radius:8px;overflow:hidden;font-size:13.5px;margin:8px 0 4px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--bd);text-align:right;vertical-align:top}
+th{background:color-mix(in srgb,var(--acc) 8%,var(--card));font-weight:600;text-align:right}
+td:first-child,th:first-child{text-align:left}td:nth-child(2){text-align:left}
+tbody tr:hover{background:color-mix(in srgb,var(--acc) 5%,var(--card))}
+.good{color:var(--good);font-weight:600}.bad{color:var(--bad);font-weight:600}small{color:var(--mut)}
+code{font:12.5px ui-monospace,monospace;background:color-mix(in srgb,var(--acc) 9%,transparent);padding:1px 4px;border-radius:4px}
+.bar{position:relative;height:16px;min-width:160px;background:color-mix(in srgb,var(--bar) 25%,transparent);border-radius:3px}
+.bar span{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:3px}
+.bar em{position:relative;font-style:normal;font-size:11.5px;padding-left:6px}
+table.speed td:nth-child(3){text-align:left;width:34%}
+pre{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow:auto;font-size:12.5px}
+.note{color:var(--mut);font-size:13px}
+table.lastleft td:last-child,table.lastleft th:last-child{text-align:left}
+</style></head><body><main>
+<h1>gorilla-tsc: overnight research results</h1>
+<p class="sub">Three questions about the compression library. Every number below was measured on this machine and read
+from the JSON results files. Every codec reported was decoded and compared bit-for-bit
+(Q2: 40/40 methods verified, Q3: 20/20, Q1: all profiles).</p>
+
+<div class="cards">
+<div class="card"><h3>1. One codec for everything?</h3>
+<div class="big">Yes for the family, no for the parameters</div>
+<p><code>decimal</code> (floats) and <code>delta</code> (integers) match <code>auto</code> on almost every dataset.
+Restricting <code>auto</code> to <code>{decimal, xor}</code> loses nothing on any of the 25 datasets.
+The cost is in the parameter search <em>inside</em> decimal. Locking the parameters learned from the first
+10k values encodes <b>9× faster</b> with a median ratio change of <b><span class="">+0.0%</span></b>.</p></div>
+<div class="card"><h3>2. Other strategies</h3>
+<div class="big">-15% (time series), -13% (other)</div>
+<p>Five new per-block candidates (dictionary, repeat cache, decimal split, adaptive bit split, LPC) together
+shrink output by about 14% while keeping 1000-value random access, and beat xz and pcodec on time series.
+The biggest single win is the decimal split on float32-derived data (Basel-temp 25.6 → 11.9 bits/value).</p></div>
+<div class="card"><h3>3. Text and binary</h3>
+<div class="big">Yes, where there are numbers inside</div>
+<p>Columnar CSV through gorilla <code>auto</code> is about half the size of xz. Log templates are 29% smaller than xz.
+Typed binary records are 48% smaller than xz. Prose needs context mixing, a different tool, which wins on size
+but runs about 250× slower than xz.</p></div>
+</div>
+
+<h2>1. Is there one compression that does well everywhere? Can we sample instead of trying everything?</h2>
+<p>Method: every mode was run on every block of 1000 values of 25 datasets: 22 Elf benchmark sets (~100k values each),
+the full 5M-value Chimp stock series, and two timestamp series. Each strategy was then scored against <code>auto</code>,
+which tries every mode on every block. The harness's best-of sum equals the library's own <code>auto</code> output exactly.</p>
+<ul>
+<li><b>Mode level: yes.</b> <code>decimal</code> wins nearly every float block and <code>delta</code> every integer block. The only
+exceptions are high-precision "real doubles" (POI-lon, Air-sensor), where <code>xor</code> wins. Restricting <code>auto</code>
+to two candidates (<code>{decimal, xor}</code> or <code>{delta, dod}</code>) gives the same size as all six on every dataset.</li>
+<li><b>Sampling the first n values to pick the mode works.</b> 1000 values picked the best fixed mode on all 25 datasets.
+Probing only the head of <em>each block</em> is worse (City-temp, PM10, Food-price) and barely faster. Don't do that.</li>
+<li><b>But mode locking alone barely speeds things up</b> (21 vs 18 MB/s), because <code>decimal</code>
+itself searches exponents, difference orders and coders per block. The real win is locking those as well:
+a <b>production profile</b> learned once from a sample.</li>
+<li><b>Sample size matters.</b> Learned from only 1000 values, the profile can choose too few decimal places, and
+later values become 64-bit exceptions (Stocks-UK goes from 4.8 to 25.4 bits/value). Learning from 10k values plus an
+<em>exception guard</em> fixes this: a block that leaves more than 1% exceptions re-picks its exponent.</li>
+<li>Re-learning when a block suddenly gets bigger, or every 16/64 blocks from recent data, made things <em>worse</em>:
+it overfits single blocks. One lock learned from a decent sample was the most robust.</li>
+</ul>
+<h3>Encoding speed (single core, median over datasets)</h3>
+<table class="speed"><thead><tr><th>encoder</th><th>encode MB/s (median)</th><th></th><th>decode MB/s</th><th>datasets</th></tr></thead><tbody><tr><td>library auto (full per-block search)</td><td>18</td><td><div class="bar"><span style="width:9.5%"></span><em>1.0×</em></div></td><td>245</td><td>25</td></tr><tr><td>library decimal / delta only (mode locked)</td><td>21</td><td><div class="bar"><span style="width:11.1%"></span><em>1.2×</em></div></td><td>230</td><td>25</td></tr><tr><td>probe first 64 values of each block</td><td>20</td><td><div class="bar"><span style="width:10.7%"></span><em>1.1×</em></div></td><td>–</td><td>25</td></tr><tr><td>locked profile, learned from first 10k</td><td>191</td><td><div class="bar"><span style="width:100.0%"></span><em>10.5×</em></div></td><td>259</td><td>25</td></tr><tr><td>locked profile + exception guard</td><td>166</td><td><div class="bar"><span style="width:86.8%"></span><em>9.1×</em></div></td><td>250</td><td>23</td></tr><tr><td>library xor (Gorilla)</td><td>461</td><td><div class="bar"><span style="width:100.0%"></span><em>25.4×</em></div></td><td>344</td><td>23</td></tr></tbody></table>
+<h3>Ratio per dataset (bits/value, lower is better)</h3>
+<p class="note">"Recipe" = lock the mode from the first 1000 values; if it is decimal/delta, lock its parameters learned from
+the first 10k values (with the exception guard for floats). Median change vs auto: <span class="">+0.0%</span>.
+Worst: Food-price +10.6%, Air-sensor +3.4%, Basel-temp +2.9%.</p>
+<table class=""><thead><tr><th>dataset</th><th>auto</th><th>top block winner</th><th>decimal / delta only</th><th>auto over 2 modes</th><th>mode locked from 1k values</th><th>profile from 1k (no guard)</th><th>recipe</th></tr></thead><tbody><tr><td>Air-pressure</td><td>10.01</td><td>decimal 100%</td><td>10.00</td><td>10.01</td><td>decimal → 10.00</td><td>10.16</td><td>10.16 <span class="bad">+1.6%</span></td></tr><tr><td>Air-sensor</td><td>50.53</td><td>xor 67%</td><td>55.48</td><td>50.53</td><td>xor → 52.27</td><td>70.17</td><td>52.27 <span class="bad">+3.4%</span></td></tr><tr><td>Basel-temp</td><td>25.65</td><td>decimal 99%</td><td>25.65</td><td>25.65</td><td>decimal → 25.65</td><td>26.37</td><td>26.39 <span class="bad">+2.9%</span></td></tr><tr><td>Basel-wind</td><td>27.20</td><td>decimal 100%</td><td>27.20</td><td>27.20</td><td>decimal → 27.20</td><td>27.17</td><td>27.33 <span class="">+0.5%</span></td></tr><tr><td>Bird-migration</td><td>14.58</td><td>decimal 100%</td><td>14.57</td><td>14.58</td><td>decimal → 14.57</td><td>14.54</td><td>14.54 <span class="">-0.2%</span></td></tr><tr><td>Bitcoin-price</td><td>21.14</td><td>decimal 100%</td><td>21.13</td><td>21.14</td><td>decimal → 21.13</td><td>21.10</td><td>21.10 <span class="">-0.2%</span></td></tr><tr><td>City-temp</td><td>6.70</td><td>decimal 99%</td><td>6.70</td><td>6.70</td><td>decimal → 6.70</td><td>8.40</td><td>6.66 <span class="good">-0.5%</span></td></tr><tr><td>Dew-point-temp</td><td>8.29</td><td>decimal 99%</td><td>8.28</td><td>8.29</td><td>decimal → 8.28</td><td>8.29</td><td>8.29 <span class="">+0.0%</span></td></tr><tr><td>IR-bio-temp</td><td>3.46</td><td>decimal 100%</td><td>3.46</td><td>3.46</td><td>decimal → 3.46</td><td>3.42</td><td>3.42 <span class="good">-1.2%</span></td></tr><tr><td>PM10-dust</td><td>3.21</td><td>decimal 100%</td><td>3.21</td><td>3.21</td><td>decimal → 3.21</td><td>3.24</td><td>3.24 <span class="bad">+1.0%</span></td></tr><tr><td>Stocks-DE</td><td>4.84</td><td>decimal 100%</td><td>4.84</td><td>4.84</td><td>decimal → 4.84</td><td>4.89</td><td>4.89 <span class="bad">+1.1%</span></td></tr><tr><td>Stocks-UK</td><td>4.81</td><td>decimal 99%</td><td>4.81</td><td>4.81</td><td>decimal → 4.81</td><td>25.42</td><td>4.81 <span class="">+0.0%</span></td></tr><tr><td>Stocks-USA</td><td>4.47</td><td>decimal 100%</td><td>4.46</td><td>4.47</td><td>decimal → 4.46</td><td>4.46</td><td>4.46 <span class="">-0.1%</span></td></tr><tr><td>Wind-speed</td><td>5.16</td><td>decimal 100%</td><td>5.16</td><td>5.16</td><td>decimal → 5.16</td><td>5.18</td><td>5.13 <span class="good">-0.7%</span></td></tr><tr><td>Stocks-Germany (5M)</td><td>2.93</td><td>decimal 100%</td><td>2.93</td><td>2.93</td><td>decimal → 2.93</td><td>2.89</td><td>2.89 <span class="good">-1.4%</span></td></tr><tr><td>Stock timestamps (s)</td><td>3.95</td><td>delta 100%</td><td>3.95</td><td>3.95</td><td>delta → 3.95</td><td>4.05</td><td>3.97 <span class="">+0.5%</span></td></tr><tr><td>Scrape timestamps (10 s +/- 5 ms)</td><td>4.92</td><td>delta 100%</td><td>4.92</td><td>4.92</td><td>delta → 4.92</td><td>4.92</td><td>4.92 <span class="">-0.1%</span></td></tr><tr><td>Blockchain-tr</td><td>11.71</td><td>decimal 100%</td><td>11.70</td><td>11.71</td><td>decimal → 11.70</td><td>11.66</td><td>11.66 <span class="">-0.4%</span></td></tr><tr><td>City-lat</td><td>20.40</td><td>decimal 98%</td><td>20.40</td><td>20.40</td><td>decimal → 20.40</td><td>20.36</td><td>20.36 <span class="">-0.2%</span></td></tr><tr><td>City-lon</td><td>21.56</td><td>decimal 98%</td><td>21.55</td><td>21.56</td><td>decimal → 21.55</td><td>21.91</td><td>21.52 <span class="">-0.2%</span></td></tr><tr><td>Food-price</td><td>10.29</td><td>decimal 99%</td><td>10.29</td><td>10.29</td><td>decimal → 10.29</td><td>11.59</td><td>11.38 <span class="bad">+10.6%</span></td></tr><tr><td>POI-lat</td><td>62.13</td><td>decimal 99%</td><td>62.13</td><td>62.13</td><td>decimal → 62.13</td><td>62.12</td><td>62.12 <span class="">+0.0%</span></td></tr><tr><td>POI-lon</td><td>66.01</td><td>xor 76%</td><td>72.39</td><td>66.01</td><td>xor → 66.01</td><td>72.34</td><td>66.01 <span class="">+0.0%</span></td></tr><tr><td>SSD-bench</td><td>10.40</td><td>decimal 100%</td><td>10.40</td><td>10.40</td><td>decimal → 10.40</td><td>10.35</td><td>10.35 <span class="">-0.5%</span></td></tr><tr><td>Vehicle-charge</td><td>9.94</td><td>decimal 100%</td><td>9.93</td><td>9.94</td><td>decimal → 9.93</td><td>9.97</td><td>9.97 <span class="">+0.3%</span></td></tr></tbody></table>
+<p class="note">Food-price is the one dataset where locking clearly loses: its blocks need different exponents (k = 1–4).
+A per-block exponent from a one-pass "covering" histogram brought it to about 11.5 (see <code>q1.json</code>).
+Recovering the rest needs the full per-block search.</p>
+<p><b>Answer:</b> keep <code>auto</code> as the exploration tool, which matches your intuition. Add a <code>Profile</code> type
+(mode + exponent + order + coder) that can be learned from a sample, stored, and passed to an encoder for production
+use. Expect about 10× faster encoding at about the same ratio. Two free library fixes also turned up:
+(1) each block's first value is stored as a raw 64-bit word, which costs about 0.04 bits/value; a length prefix
+fixes it. (2) On POI-lon <code>auto</code> spends 66 bits/value, more than raw, so a verbatim fallback is needed.</p>
+
+<h2>2. What other compression strategies could we test?</h2>
+<p>40 methods on 23 datasets, all verified lossless. Values are mean bits/value over 14 time series and
+8 non-time-series sets. Speeds are single-core medians in MB/s of raw f64 input.</p>
+<table class=""><thead><tr><th>method</th><th></th><th>time series</th><th>non-time-series</th><th>Stocks 5M</th><th>enc MB/s</th><th>dec MB/s</th></tr></thead><tbody><tr><td><code>auto</code></td><td>current library default</td><td>13.58 </td><td>26.56 </td><td>2.93</td><td>16.2</td><td>209</td></tr><tr><td><code>auto+dict</code></td><td>+ sorted dictionary per block (any cardinality)</td><td>12.36 <span class="good">-9.0%</span></td><td>24.07 <span class="good">-9.4%</span></td><td>2.92</td><td>4.7</td><td>178</td></tr><tr><td><code>auto+repeat</code></td><td>+ move-to-front repeat cache per block</td><td>12.78 <span class="good">-5.9%</span></td><td>24.59 <span class="good">-7.4%</span></td><td>2.93</td><td>6.0</td><td>192</td></tr><tr><td><code>auto+decsplit</code></td><td>+ decimal split (reading + float32-noise remainder)</td><td>12.31 <span class="good">-9.4%</span></td><td>26.36 <span class="good">-0.8%</span></td><td>2.93</td><td>3.7</td><td>174</td></tr><tr><td><code>auto+split</code></td><td>+ adaptive ALP-RD-style bit split (high-precision doubles)</td><td>13.36 <span class="good">-1.6%</span></td><td>24.16 <span class="good">-9.0%</span></td><td>2.93</td><td>6.8</td><td>209</td></tr><tr><td><code>auto+lpc</code></td><td>+ linear prediction on scaled integers</td><td>13.54 <span class="">-0.2%</span></td><td>26.49 <span class="">-0.3%</span></td><td>2.93</td><td>4.2</td><td>218</td></tr><tr><td><code>auto+prior</code></td><td>+ trained prior for the adaptive coder</td><td>13.54 <span class="">-0.3%</span></td><td>26.18 <span class="good">-1.4%</span></td><td>2.92</td><td>8.1</td><td>127</td></tr><tr><td><code>auto+all</code></td><td>all of the above as per-block candidates</td><td>11.59 <span class="good">-14.6%</span></td><td>23.12 <span class="good">-13.0%</span></td><td>2.91</td><td>1.1</td><td>154</td></tr><tr><td><code>auto-b4096</code></td><td>auto, blocks of 4096</td><td>13.91 <span class="bad">+2.4%</span></td><td>26.18 <span class="good">-1.4%</span></td><td>2.78</td><td>16.2</td><td>163</td></tr><tr><td><code>auto-whole</code></td><td>auto, one block per dataset</td><td>14.47 <span class="bad">+6.6%</span></td><td>26.36 <span class="good">-0.8%</span></td><td>3.87</td><td>16.8</td><td>148</td></tr><tr><td><code>xz-9</code></td><td>baseline: xz -9 on raw f64</td><td>13.96 <span class="bad">+2.8%</span></td><td>22.59 <span class="good">-15.0%</span></td><td>4.49</td><td>4.8</td><td>147</td></tr><tr><td><code>pcodec</code></td><td>baseline: pcodec (whole dataset)</td><td>14.09 <span class="bad">+3.8%</span></td><td>25.04 <span class="good">-5.7%</span></td><td>3.69</td><td>197.2</td><td>1128</td></tr><tr><td><code>pcodec-b1000</code></td><td>baseline: pcodec, blocks of 1000</td><td>17.22 <span class="bad">+26.8%</span></td><td>25.74 <span class="good">-3.1%</span></td><td>4.46</td><td>67.4</td><td>779</td></tr><tr><td><code>zstd-19</code></td><td>baseline: zstd -19 on raw f64</td><td>17.14 <span class="bad">+26.3%</span></td><td>25.61 <span class="good">-3.6%</span></td><td>5.51</td><td>5.4</td><td>873</td></tr><tr><td><code>shuffle-zstd-19</code></td><td>baseline: byte-shuffle + zstd -19</td><td>33.82 <span class="bad">+149.1%</span></td><td>41.77 <span class="bad">+57.3%</span></td><td>17.60</td><td>9.8</td><td>658</td></tr><tr><td><code>gorilla-xor</code></td><td>baseline: Gorilla XOR</td><td>49.06 <span class="bad">+261.4%</span></td><td>56.30 <span class="bad">+112.0%</span></td><td>46.83</td><td>462.7</td><td>343</td></tr></tbody></table>
+<h3>What each strategy showed</h3>
+<ul>
+<li><b>Decimal split</b> (best new idea): many float series are decimal readings plus a constant float32 offset
+(Basel-temp <code>1.9005287, 1.6105287, …</code>). Splitting the scaled integer into a reading and a tiny remainder
+halves Basel-temp, beating pcodec and xz. Food-price −15%, Bird-migration −10%.</li>
+<li><b>Dictionary</b>: helps even on mostly-distinct blocks (a sorted dictionary has tiny deltas). SSD-bench −46%, Basel-wind −25%.</li>
+<li><b>Adaptive bit split</b> (ALP-RD style): fixes the "real doubles" where <code>auto</code> spends 62–66 bits/value. POI −13 to −16%.</li>
+<li><b>Not worth it:</b> LPC on floats (−0.3%), trained priors (≤ −1.4%), carrying the coder state across blocks (−1.5 to −3%, at the cost of random access), and bigger blocks for <code>auto</code> alone.</li>
+<li><b>Where xz and pcodec still win:</b> exact repeats <em>across</em> blocks (in POI-lat, 33% of values repeat an earlier value,
+but only 1% within their block). A chunk-level shared dictionary is the biggest remaining gain on non-time-series data (not yet measured).</li>
+<li><b>Cost:</b> <code>auto+all</code> encodes at about 1 MB/s because it tries 11 candidates per block. That is exactly what question 1's profile lock fixes.</li>
+</ul>
+<h3>Per dataset (bits/value; best in bold)</h3>
+<table class=""><thead><tr><th>dataset</th><th>kind</th><th>gorilla-xor</th><th>auto</th><th>auto+all</th><th>xz-9</th><th>pcodec</th><th>zstd-19</th></tr></thead><tbody><tr><td>Air-pressure</td><td>time series</td><td>45.96</td><td>10.01</td><td>9.09</td><td>13.54</td><td><b>8.73</b></td><td>17.57</td></tr><tr><td>Air-sensor</td><td>time series</td><td>52.27</td><td>50.53</td><td>47.30</td><td>50.36</td><td><b>46.57</b></td><td>53.86</td></tr><tr><td>Basel-temp</td><td>time series</td><td>60.11</td><td>25.65</td><td><b>11.91</b></td><td>13.01</td><td>15.27</td><td>16.28</td></tr><tr><td>Basel-wind</td><td>time series</td><td>63.53</td><td>27.20</td><td>20.23</td><td><b>13.29</b></td><td>14.29</td><td>16.21</td></tr><tr><td>Bird-migration</td><td>time series</td><td>50.25</td><td>14.58</td><td><b>12.48</b></td><td>14.52</td><td>15.05</td><td>19.20</td></tr><tr><td>Bitcoin-price</td><td>time series</td><td>53.32</td><td>21.15</td><td><b>21.15</b></td><td>30.27</td><td>46.20</td><td>37.77</td></tr><tr><td>City-temp</td><td>time series</td><td>54.16</td><td>6.70</td><td><b>6.43</b></td><td>7.49</td><td>7.72</td><td>9.29</td></tr><tr><td>Dew-point-temp</td><td>time series</td><td>53.26</td><td>8.29</td><td><b>8.23</b></td><td>12.27</td><td>8.98</td><td>16.27</td></tr><tr><td>IR-bio-temp</td><td>time series</td><td>44.44</td><td>3.46</td><td><b>3.43</b></td><td>6.56</td><td>4.29</td><td>8.35</td></tr><tr><td>PM10-dust</td><td>time series</td><td>30.55</td><td>3.21</td><td><b>3.05</b></td><td>4.35</td><td>4.45</td><td>5.24</td></tr><tr><td>Stocks-DE</td><td>time series</td><td>45.84</td><td>4.84</td><td><b>4.76</b></td><td>8.44</td><td>6.58</td><td>11.35</td></tr><tr><td>Stocks-UK</td><td>time series</td><td>36.88</td><td>4.81</td><td><b>4.77</b></td><td>7.63</td><td>8.58</td><td>10.71</td></tr><tr><td>Stocks-USA</td><td>time series</td><td>43.30</td><td>4.47</td><td><b>4.47</b></td><td>7.76</td><td>5.23</td><td>10.48</td></tr><tr><td>Wind-speed</td><td>time series</td><td>52.93</td><td>5.16</td><td><b>5.00</b></td><td>5.94</td><td>5.40</td><td>7.39</td></tr><tr><td>Blockchain-tr</td><td>non-time-series</td><td>47.14</td><td>11.71</td><td><b>10.64</b></td><td>11.36</td><td>12.37</td><td>14.14</td></tr><tr><td>City-lat</td><td>non-time-series</td><td>65.95</td><td>20.41</td><td><b>19.99</b></td><td>23.69</td><td>20.54</td><td>28.48</td></tr><tr><td>City-lon</td><td>non-time-series</td><td>66.00</td><td>21.56</td><td><b>21.49</b></td><td>25.47</td><td>22.14</td><td>30.13</td></tr><tr><td>Food-price</td><td>non-time-series</td><td>36.80</td><td>10.29</td><td><b>8.76</b></td><td>10.98</td><td>19.47</td><td>13.51</td></tr><tr><td>POI-lat</td><td>non-time-series</td><td>65.88</td><td>62.14</td><td>53.73</td><td><b>42.95</b></td><td>53.30</td><td>45.71</td></tr><tr><td>POI-lon</td><td>non-time-series</td><td>66.01</td><td>66.01</td><td>55.23</td><td><b>47.34</b></td><td>54.55</td><td>50.45</td></tr><tr><td>SSD-bench</td><td>non-time-series</td><td>38.85</td><td>10.41</td><td><b>5.31</b></td><td>5.66</td><td>7.59</td><td>6.82</td></tr><tr><td>Vehicle-charge</td><td>non-time-series</td><td>63.73</td><td>9.95</td><td><b>9.81</b></td><td>13.25</td><td>10.39</td><td>15.67</td></tr><tr><td>Stocks-Germany (5M)</td><td>time series</td><td>46.83</td><td>2.93</td><td><b>2.91</b></td><td>4.49</td><td>3.69</td><td>5.51</td></tr></tbody></table>
+
+<h3>Library inputs from questions 1 and 2</h3>
+<ol>
+<li>Add <code>Profile</code> learning and locked encoding (question 1). It's what makes the slow candidates affordable.</li>
+<li>Add per-block candidates: decimal split, dictionary, adaptive bit split (the 3-bit selector has two free codes; going to 4 bits costs about 0.001 bits/value).</li>
+<li>Store the first value with a length prefix, and add a verbatim fallback.</li>
+<li>Later: a chunk-level shared dictionary (format change) for cross-block repeats.</li>
+</ol>
+
+<h2>3. Could this extend to text or binary data?</h2>
+<p>Five ideas prototyped on 46 real files (Canterbury corpus, 10 MB of Wikipedia, numeric CSVs, two system logs,
+an executable, a SQLite file, binary records, PCM audio) and compared with gzip, bzip2, zstd, xz, brotli and flac.
+All 20 methods round-trip byte-exact.</p>
+<table class=""><thead><tr><th>category</th><th>files</th><th>raw</th><th>xz -9e</th><th>best standard tool (per file)</th><th>best of ours (per file)</th><th>vs best standard</th></tr></thead><tbody><tr><td>text</td><td>9</td><td>11.2 MB</td><td>3.11 MB</td><td>3.05 MB</td><td>2.59 MB</td><td><span class="good">-15.0%</span></td></tr><tr><td>binary</td><td>8</td><td>87.0 MB</td><td>13.28 MB</td><td>12.74 MB</td><td>10.21 MB</td><td><span class="good">-19.8%</span></td></tr><tr><td>numeric-text</td><td>25</td><td>227.1 MB</td><td>16.97 MB</td><td>15.80 MB</td><td>10.22 MB</td><td><span class="good">-35.3%</span></td></tr><tr><td>log</td><td>2</td><td>23.7 MB</td><td>0.19 MB</td><td>0.19 MB</td><td>0.13 MB</td><td><span class="good">-29.7%</span></td></tr><tr><td>audio</td><td>2</td><td>11.8 MB</td><td>10.71 MB</td><td>7.05 MB</td><td>6.73 MB</td><td><span class="good">-4.6%</span></td></tr></tbody></table>
+<h3>Selected files (bytes)</h3>
+<table class="lastleft"><thead><tr><th>file</th><th>raw</th><th>xz -9e</th><th>best standard tool</th><th>ours</th><th>change</th><th>what</th></tr></thead><tbody><tr><td>Stocks-Germany-sample.txt</td><td>143,158,312</td><td>9,704,892</td><td>9,704,892 <small>xz -9e</small></td><td>5,097,447 <small>ours-columnar+xz</small></td><td><span class="good">-47.5%</span></td><td>numeric CSV, columns through gorilla auto</td></tr><tr><td>city_temperature.csv</td><td>69,666,389</td><td>3,906,956</td><td>3,004,324 <small>bzip2 -9</small></td><td>2,623,148 <small>ours-columnar+cm</small></td><td><span class="good">-12.7%</span></td><td>numeric CSV</td></tr><tr><td>elf/City-lat.csv</td><td>330,225</td><td>122,264</td><td>106,655 <small>bzip2 -9</small></td><td>106,978 <small>ours-columnar+xz</small></td><td><span class="">+0.3%</span></td><td>unordered numbers: columnar adds nothing</td></tr><tr><td>system journal (125k lines)</td><td>19,574,412</td><td>101,040</td><td>101,040 <small>xz -9e</small></td><td>71,812 <small>ours-log+xz</small></td><td><span class="good">-28.9%</span></td><td>log templates + gorilla timestamps</td></tr><tr><td>package-manager log</td><td>4,083,400</td><td>86,484</td><td>86,484 <small>xz -9e</small></td><td>85,783 <small>ours-log+xz</small></td><td><span class="good">-0.8%</span></td><td>too many templates: no gain</td></tr><tr><td>stock ticks, 20-byte records (i64 ts, f64 price, i32 vol)</td><td>20,000,000</td><td>1,954,704</td><td>1,954,704 <small>xz -9e</small></td><td>1,008,141 <small>ours-struct</small></td><td><span class="good">-48.4%</span></td><td>stride detection + typed fields</td></tr><tr><td>SQLite DB (built from bench data)</td><td>15,937,536</td><td>1,892,300</td><td>1,892,300 <small>xz -9e</small></td><td>1,167,090 <small>ours-cm-stride</small></td><td><span class="good">-38.3%</span></td><td>context mixing with record stride</td></tr><tr><td>ELF x86-64 executable</td><td>14,627,000</td><td>2,957,212</td><td>2,864,980 <small>xz -9e --x86</small></td><td>2,708,740 <small>ours-cm-bcj</small></td><td><span class="good">-5.5%</span></td><td>x86 BCJ filter + context mixing</td></tr><tr><td>enwik8 (first 10 MB)</td><td>10,000,000</td><td>2,720,256</td><td>2,704,839 <small>brotli -q11</small></td><td>2,275,041 <small>ours-cm</small></td><td><span class="good">-15.9%</span></td><td>prose: context mixing</td></tr><tr><td>alice29.txt</td><td>152,089</td><td>48,528</td><td>43,202 <small>bzip2 -9</small></td><td>39,384 <small>ours-cm</small></td><td><span class="good">-8.8%</span></td><td>prose</td></tr><tr><td>music, 60 s 16-bit stereo PCM (decoded from MP3)</td><td>10,584,000</td><td>10,050,496</td><td>6,789,871 <small>flac -8</small></td><td>6,499,636 <small>ours-lpc</small></td><td><span class="good">-4.3%</span></td><td>LPC + library Rice/adaptive coders vs FLAC</td></tr></tbody></table>
+<h3>Speed (encode / decode MB/s, single core)</h3>
+<table class=""><thead><tr><th>method</th><th>enwik8 10 MB</th><th>Stocks CSV 143 MB</th><th>journal</th><th>binary records</th></tr></thead><tbody><tr><td><code>xz -9e</code></td><td>1.64 / 108.1</td><td>0.40 / 202.9</td><td>4.39 / 779.6</td><td>1.99 / 168.9</td></tr><tr><td><code>zstd -19</code></td><td>2.09 / 496.6</td><td>1.60 / 864.6</td><td>9.39 / 1386.0</td><td>2.65 / 699.7</td></tr><tr><td><code>ours-cm</code></td><td>0.39 / 0.4</td><td>0.67 / 0.7</td><td>0.66 / 0.7</td><td>0.57 / 0.5</td></tr><tr><td><code>ours-columnar+xz</code></td><td>–</td><td>0.88 / 48.2</td><td>–</td><td>–</td></tr><tr><td><code>ours-log+xz</code></td><td>–</td><td>–</td><td>9.07 / 117.0</td><td>–</td></tr><tr><td><code>ours-struct</code></td><td>–</td><td>–</td><td>–</td><td>3.20 / 176.8</td></tr></tbody></table>
+<ul>
+<li><b>Numeric text is the showcase.</b> Tokenise each number exactly (digits plus formatting), then put the columns through
+gorilla <code>auto</code>. Stocks CSV comes out at half of xz, and decodes at about 48 MB/s with xz for the leftover strings.</li>
+<li><b>Logs:</b> templates plus epoch timestamps through gorilla are 29% smaller than xz, but only when there are few templates
+with numeric variables. A package log with thousands of unique templates gains nothing.</li>
+<li><b>Binary with records:</b> stride detection found the record size every time (4, 8, 13, 20, 42, 216 bytes). Typed fields
+through gorilla came out at half of xz and decode at 177 MB/s.</li>
+<li><b>Audio:</b> the library's order ≤ 2 predictors lose to FLAC, but LPC in front of the library's Rice/adaptive coders beats <code>flac -8</code>.</li>
+<li><b>Prose:</b> numeric modelling adds nothing. A context-mixing coder beats xz and brotli by 10–20% but runs at
+about 0.5 MB/s. The library's range coder with simple contexts is worse than gzip: the modelling matters, not the coder.</li>
+</ul>
+<pre>bytes ─► sniff ─┬─ delimited text ─► exact number tokenizer ─► numeric columns ─► gorilla auto
+                │                                               strings ──────────► zstd / xz
+                ├─ line logs ─────► template miner ──► timestamps ─► gorilla delta; numeric slots ─► gorilla auto
+                ├─ fixed records ─► stride + field typing ─► typed columns ─► gorilla auto
+                ├─ PCM audio ─────► stereo mode + LPC ─► library Rice / adaptive coders
+                └─ anything else ─► zstd / xz (or context mixing when ratio matters more than speed)</pre>
+<p><b>Answer:</b> don't turn the core into a general text compressor. Ship a companion crate that finds the
+numbers inside text and binary (CSV columns, log variables, record fields, audio samples) and hands them to the
+library, with zstd/xz for everything else. Worth adding to the core: an <code>Lpc</code> integer mode.</p>
+
+<h2>Method, caveats, reproduce</h2>
+<ul class="note">
+<li>Datasets: 22 Elf sets (about 100k-value subsets of the sets in the Elf and ALP papers, so only roughly comparable with their full-set numbers), Chimp Stocks-Germany (5M), timestamps.
+Fetch with <code>scripts/fetch-bench-data.sh</code>. The harness reproduces Gorilla's published bits/value to within 0.07.</li>
+<li>Machine: one core of an i7-8700K. Q1 timing was run sequentially on an idle machine. Q2 was re-run on an idle machine.
+Q3 ran 6 jobs in parallel, so its speeds are ±30%, and CLI tool timings include process start-up.</li>
+<li>Spot checks by hand: system xz/zstd on raw f64 bytes match Q2's baselines, and three Q3 results (columnar CSV, binary records, log)
+were re-encoded and decoded from the command line: same sizes, identical round trips.</li>
+<li>Experiment codecs aren't hardened against corrupt input. They're research code, not library code.</li>
+<li>Reproduce: <code>experiments/q1-mode-selection</code>: <code>cargo run --release</code> and <code>cargo run --release -- --timing</code>.
+<code>experiments/q2-strategies</code>: <code>cargo run --release -- --jobs 1</code>.
+<code>experiments/q3-text-binary</code>: see its README (data fetch, then <code>bench all all 6</code> and <code>report</code>).
+This page: <code>python3 experiments/results/make_summary.py</code>.</li>
+<li>Write-ups: <code>experiments/results/q2-findings.md</code>, <code>q3-findings.md</code>. Raw data: <code>q1.json</code>, <code>q1-timing.json</code>, <code>q2.json</code>, <code>q3.json</code>.</li>
+</ul>
+</main></body></html>
