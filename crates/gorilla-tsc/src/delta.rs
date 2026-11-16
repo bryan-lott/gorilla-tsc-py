@@ -6,6 +6,7 @@
 //! [`AdaptiveBlock`]) and the residuals in that coder. The cheapest order and
 //! coder are chosen per block.
 
+use crate::rice::{read_prefixed, write_prefixed};
 use crate::scheme::{Op, Sub};
 use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBlock, Word};
 
@@ -97,7 +98,7 @@ pub fn integrate<W: Word>(first: W, residuals: &[W], order: Order, out: &mut Vec
 impl<W: Word> BlockCodec<W> for DeltaRice {
     fn encode_block(&self, items: &[W], out: &mut BitWriter) {
         let Some((&first, rest)) = items.split_first() else { return };
-        out.write(first.to_u64(), W::BITS);
+        write_prefixed::<W>(out, first.zigzag().to_u64());
         if rest.is_empty() {
             return;
         }
@@ -127,7 +128,7 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         if n == 0 {
             return Ok(());
         }
-        let first = W::from_u64_truncate(input.read(W::BITS)?);
+        let first = W::from_u64_truncate(read_prefixed::<W>(input, "first value longer than a word")?).unzigzag();
         out.push(first);
         if n == 1 {
             return Ok(());
@@ -170,6 +171,11 @@ mod tests {
         w.bit_len() as u64
     }
 
+    /// Cost of a block's first value: zig-zagged, 7-bit (u64) length prefix.
+    fn first(v: u64) -> u64 {
+        7 + u64::from(v.zigzag().bit_width())
+    }
+
     /// Cheapest coding of residuals, including the coder bit.
     fn best(r: &[u64]) -> u64 {
         1 + RiceBlock::cost(r, RiceBlock::choose(r)).min(adaptive_bits(r))
@@ -195,9 +201,26 @@ mod tests {
     }
 
     #[test]
-    fn single_item_is_verbatim() {
-        assert_eq!(bits(&[42u64]), 64);
-        assert_eq!(bits(&[42u32]), 32);
+    fn first_value_is_zigzag_length_prefixed() {
+        // zigzag(42) = 84: 7 bits, after a 7-bit (u64) or 6-bit (u32) length.
+        assert_eq!(bits(&[42u64]), 7 + 7);
+        assert_eq!(bits(&[42u32]), 6 + 7);
+        // zigzag(-3) = 5: 3 bits.
+        assert_eq!(bits(&[(-3i64).cast_unsigned()]), 7 + 3);
+        assert_eq!(bits(&[0u64]), 7);
+        // Full-width values still fit: zigzag(i64::MIN) = u64::MAX.
+        assert_eq!(bits(&[i64::MIN.cast_unsigned()]), 7 + 64);
+        assert_eq!(round_trip(&[i64::MIN.cast_unsigned()]), [i64::MIN.cast_unsigned()]);
+        assert_eq!(round_trip(&[i32::MIN.cast_unsigned()]), [i32::MIN.cast_unsigned()]);
+    }
+
+    #[test]
+    fn overlong_first_value_length_is_corrupt() {
+        let mut w = BitWriter::new();
+        w.write(33, 6); // u32 lengths go up to 32
+        let bytes = w.finish();
+        let r = DeltaRice.decode_block(1, &mut BitReader::new(&bytes), &mut Vec::<u32>::new());
+        assert_eq!(r, Err(DecodeError::Corrupt("first value longer than a word")));
     }
 
     #[test]
@@ -205,7 +228,7 @@ mod tests {
         let cases: [&[u64]; 3] = [&[0, 5, 10, 15, 20, 25, 30], &[1, 1, 2, 1, 1, 2, 1], &[100, 90, 500, 7, 7, 7]];
         for x in cases {
             let costs = [Order::First, Order::Second, Order::Zero].map(|o| best(&residuals(x, o)));
-            assert_eq!(bits(x) as u64, 64 + 2 + costs.into_iter().min().unwrap(), "{x:?}");
+            assert_eq!(bits(x) as u64, first(x[0]) + 2 + costs.into_iter().min().unwrap(), "{x:?}");
         }
     }
 
@@ -213,9 +236,9 @@ mod tests {
     fn linear_series_costs_about_one_bit_per_value() {
         let x: Vec<u64> = (0..100).map(|i| 1000 + 7 * i).collect();
         let costs = [Order::First, Order::Second, Order::Zero].map(|o| best(&residuals(&x, o)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + costs.into_iter().min().unwrap());
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + costs.into_iter().min().unwrap());
         // 99 residuals at ~1 bit each plus a small Rice header.
-        assert!(bits(&x) <= 64 + 2 + 99 + 30, "{} bits", bits(&x));
+        assert!(bits(&x) as u64 <= first(x[0]) + 2 + 99 + 30, "{} bits", bits(&x));
     }
 
     #[test]
@@ -223,7 +246,7 @@ mod tests {
         let x: Vec<u64> = (0..100u64).map(|i| 10_000 * i + (i * 7919) % 11).collect();
         let one = best(&residuals(&x, Order::First));
         assert!(one < best(&residuals(&x, Order::Second)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + one);
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + one);
     }
 
     #[test]
@@ -242,13 +265,14 @@ mod tests {
         let zero = best(&residuals(&x, Order::Zero));
         assert!(zero < best(&residuals(&x, Order::First)));
         assert!(zero < best(&residuals(&x, Order::Second)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + zero);
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + zero);
     }
 
     #[test]
     fn unknown_order_is_corrupt() {
         let mut w = BitWriter::new();
-        w.write(1, 64);
+        w.write(1, 7); // first value: length 1, then "1" (zigzag of -1)
+        w.write(1, 1);
         w.write(3, 2);
         w.write(0, 64);
         let bytes = w.finish();
@@ -261,24 +285,31 @@ mod tests {
         let x: Vec<u64> = (0..1000u64).map(|i| 500 + u64::from(i % 97 == 0)).collect();
         let r = residuals(&x, Order::First);
         assert!(adaptive_bits(&r) < RiceBlock::cost(&r, RiceBlock::choose(&r)));
-        assert!(bits(&x) < 64 + 2 + 400, "{} bits", bits(&x));
+        assert!((bits(&x) as u64) < first(x[0]) + 2 + 400, "{} bits", bits(&x));
     }
 
     #[test]
     fn smooth_series_picks_cheaper_coder() {
         let x: Vec<u64> = (0..500u64).map(|i| 1_000_000 + i * i / 3).collect();
         for order in [Order::First, Order::Second, Order::Zero] {
-            assert!(bits(&x) as u64 <= 64 + 2 + best(&residuals(&x, order)));
+            assert!(bits(&x) as u64 <= first(x[0]) + 2 + best(&residuals(&x, order)));
         }
     }
 
     #[test]
     fn truncated_is_eof() {
         let mut w = BitWriter::new();
-        DeltaRice.encode_block(&[1u64, 2, 3], &mut w);
+        let x: Vec<u64> = (0..100).map(|i| i * i).collect();
+        DeltaRice.encode_block(&x, &mut w);
         let bytes = w.finish();
-        let mut out = Vec::<u64>::new();
-        assert_eq!(DeltaRice.decode_block(3, &mut BitReader::new(&bytes[..4]), &mut out), Err(DecodeError::UnexpectedEof));
+        for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
+            let mut out = Vec::<u64>::new();
+            assert_eq!(
+                DeltaRice.decode_block(x.len(), &mut BitReader::new(&bytes[..cut]), &mut out),
+                Err(DecodeError::UnexpectedEof),
+                "cut at {cut}"
+            );
+        }
     }
 
     proptest! {
