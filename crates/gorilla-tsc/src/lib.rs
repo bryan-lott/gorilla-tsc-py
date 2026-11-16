@@ -24,6 +24,7 @@ mod pairs;
 mod range;
 mod rice;
 mod scheme;
+mod split;
 mod stream;
 mod word;
 
@@ -31,6 +32,8 @@ pub use adaptive::AdaptiveBlock;
 pub use bits::{BitReader, BitWriter};
 pub use block::{BlockCodec, PerItem};
 pub use decimal::{DecimalRice, Scaled};
+pub use dict::Dictionary;
+pub use split::DecimalSplit;
 pub use delta::{DeltaRice, Order};
 pub use coder::{BucketCoder, ResidualCoder, XorCoder};
 pub use error::DecodeError;

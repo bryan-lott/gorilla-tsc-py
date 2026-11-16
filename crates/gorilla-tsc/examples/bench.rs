@@ -123,10 +123,40 @@ fn report<T: Sample>(name: &str, data: &[T], reference: &str, min: Duration) {
     }
 }
 
+/// One line per Elf dataset (`bench-data/elf`, see `scripts/fetch-bench-data.sh`).
+#[allow(clippy::cast_precision_loss)]
+fn elf(dir: &Path, min: Duration) {
+    const SETS: [&str; 22] = [
+        "Air-pressure", "Air-sensor", "Basel-temp", "Basel-wind", "Bird-migration", "Bitcoin-price",
+        "City-temp", "Dew-point-temp", "IR-bio-temp", "PM10-dust", "Stocks-DE", "Stocks-UK", "Stocks-USA",
+        "Wind-Speed", "Blockchain-tr", "City-lat", "City-lon", "Food-price", "POI-lat", "POI-lon", "SSD-bench",
+        "electric_vehicle_charging",
+    ];
+    println!("{:<26} {:>8} {:>8} {:>9} {:>9}", "Elf dataset", "gorilla", "auto", "enc MB/s", "dec MB/s");
+    let (mut sum_g, mut sum_a) = (0.0, 0.0);
+    for name in SETS {
+        let v: Vec<f64> = std::fs::read_to_string(dir.join("elf").join(format!("{name}.csv")))
+            .unwrap_or_else(|e| panic!("{name}: {e} (run scripts/fetch-bench-data.sh)"))
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect();
+        let g = measure(&v, Mode::Fixed(Codec::Xor), Duration::ZERO);
+        let a = measure(&v, Mode::Auto, min);
+        sum_g += g.bits_per_value;
+        sum_a += a.bits_per_value;
+        println!("{name:<26} {:>8.2} {:>8.2} {:>9.1} {:>9.0}", g.bits_per_value, a.bits_per_value, a.enc_mbs, a.dec_mbs);
+    }
+    println!("{:<26} {:>8.2} {:>8.2}", "mean", sum_g / SETS.len() as f64, sum_a / SETS.len() as f64);
+}
+
 fn main() {
     let quick = std::env::args().any(|a| a == "--quick");
     let min = Duration::from_millis(if quick { 0 } else { 300 });
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench-data");
+    if std::env::args().any(|a| a == "--elf") {
+        elf(&dir, min);
+        return;
+    }
     let limit = if quick { 200_000 } else { usize::MAX };
     let take = |mut v: Vec<f64>| {
         v.truncate(limit);

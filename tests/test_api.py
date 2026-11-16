@@ -23,7 +23,7 @@ from gorilla_tsc_py import (
     inspect,
 )
 
-MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "auto"]
+MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "auto"]
 
 
 # --- configuration -----------------------------------------------------------
@@ -36,7 +36,7 @@ MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "diction
         ({"precision": "f64"}, "timestamp precision must be 'int32' or 'int64' (got 'f64')"),
         ({"checkpoint_interval": 0}, "checkpoint interval must be between 1 and 4294967295 (got 0)"),
         ({"checkpoint_interval": 2**32}, "checkpoint interval must be between 1 and 4294967295 (got 4294967296)"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'auto' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'auto' (got 'rle')"),
     ],
 )
 def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
@@ -50,7 +50,7 @@ def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
     [
         ({"precision": "f16"}, "value precision must be 'f32' or 'f64' (got 'f16')"),
         ({"precision": "int64"}, "value precision must be 'f32' or 'f64' (got 'int64')"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'auto' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'auto' (got 'rle')"),
         ({"checkpoint_interval": -1}, "checkpoint interval must be between 1 and 4294967295 (got -1)"),
     ],
 )

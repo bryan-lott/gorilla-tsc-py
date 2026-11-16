@@ -12,6 +12,8 @@ use crate::block::{BlockCodec, PerItem};
 use crate::decimal::DecimalRice;
 use crate::delta::DeltaRice;
 use crate::dict::Dictionary;
+use crate::decimal::{best_encoding, scale};
+use crate::split::{DecimalSplit, encode_scaled};
 use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
@@ -128,7 +130,7 @@ macro_rules! impl_sample {
 /// header, and `Delta` on raw float bits only ever won constant runs. `Raw`
 /// caps every block at its uncompressed size.
 const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw];
-const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Decimal, Codec::Dictionary, Codec::Raw];
+const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Decimal, Codec::DecimalSplit, Codec::Dictionary, Codec::Raw];
 
 impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
     |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default(), i64::from);
@@ -188,6 +190,9 @@ pub enum Codec {
     Raw,
     /// The block's distinct values in numeric order, then an index per item.
     Dictionary,
+    /// Decimal scaling, then each integer as a reading plus a remainder
+    /// (`x = q * 10^j + r`), for readings carrying a low-precision offset.
+    DecimalSplit,
 }
 
 /// How a stream chooses codecs.
@@ -291,12 +296,22 @@ impl Codec {
             Self::Decimal => "decimal",
             Self::Raw => "raw",
             Self::Dictionary => "dictionary",
+            Self::DecimalSplit => "decimal_split",
         }
     }
 
     /// Every codec.
-    pub const ALL: [Self; 8] =
-        [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Raw, Self::Dictionary];
+    pub const ALL: [Self; 9] = [
+        Self::Xor,
+        Self::Dod,
+        Self::XorDod,
+        Self::DodXor,
+        Self::Delta,
+        Self::Decimal,
+        Self::Raw,
+        Self::Dictionary,
+        Self::DecimalSplit,
+    ];
 
     /// Code in the header's mode field and in [`Mode::Auto`]'s block selector.
     const fn code(self) -> u8 {
@@ -309,6 +324,7 @@ impl Codec {
             Self::Decimal => 5,
             Self::Raw => 7,
             Self::Dictionary => 8,
+            Self::DecimalSplit => 9,
         }
     }
 
@@ -422,6 +438,7 @@ fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter)
         Codec::Delta => DeltaRice.encode_block(items, out),
         Codec::Decimal => DecimalRice::<T>::default().encode_block(items, out),
         Codec::Dictionary => Dictionary::<T>::default().encode_block(items, out),
+        Codec::DecimalSplit => DecimalSplit::<T>::default().encode_block(items, out),
         Codec::Raw => {
             for &w in items {
                 out.write(w.to_u64(), W::<T>::BITS);
@@ -435,11 +452,25 @@ fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
     match mode {
         Mode::Fixed(codec) => encode_codec::<T>(codec, items, out),
         Mode::Auto => {
+            // Decimal and DecimalSplit share the (costly) exponent search.
+            let mut decimal: Option<(i32, BitWriter)> = None;
+            let mut decimal_trial = || decimal.get_or_insert_with(|| best_encoding::<T>(items)).clone();
             let (codec, best) = T::AUTO
                 .iter()
                 .map(|&c| {
-                    let mut w = BitWriter::new();
-                    encode_codec::<T>(c, items, &mut w);
+                    let w = match c {
+                        Codec::Decimal => decimal_trial().1,
+                        Codec::DecimalSplit => {
+                            let mut w = BitWriter::new();
+                            encode_scaled(&scale::<T>(items, decimal_trial().0), &mut w);
+                            w
+                        }
+                        _ => {
+                            let mut w = BitWriter::new();
+                            encode_codec::<T>(c, items, &mut w);
+                            w
+                        }
+                    };
                     (c, w)
                 })
                 .min_by_key(|(_, w)| w.bit_len())
@@ -469,6 +500,7 @@ fn decode_codec<T: Sample>(
         Codec::Delta => DeltaRice.decode_block(n, input, out),
         Codec::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
         Codec::Dictionary => Dictionary::<T>::default().decode_block(n, input, out),
+        Codec::DecimalSplit => DecimalSplit::<T>::default().decode_block(n, input, out),
         Codec::Raw => {
             for _ in 0..n {
                 out.push(W::<T>::from_u64_truncate(input.read(W::<T>::BITS)?));
@@ -727,7 +759,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 9] = [
+    const MODES: [Mode; 10] = [
         Mode::Fixed(Codec::Xor),
         Mode::Fixed(Codec::Dod),
         Mode::Fixed(Codec::XorDod),
@@ -736,6 +768,7 @@ mod tests {
         Mode::Fixed(Codec::Decimal),
         Mode::Fixed(Codec::Raw),
         Mode::Fixed(Codec::Dictionary),
+        Mode::Fixed(Codec::DecimalSplit),
         Mode::Auto,
     ];
 
@@ -763,7 +796,7 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "auto"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "auto"], MODES.map(Mode::name));
         assert_eq!(Mode::all(), MODES);
     }
 
@@ -783,7 +816,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'auto' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'auto' (got 'rle')".into()))
         );
     }
 
@@ -873,6 +906,7 @@ mod tests {
             (6, Mode::Auto),
             (7, Mode::Fixed(Codec::Raw)),
             (8, Mode::Fixed(Codec::Dictionary)),
+            (9, Mode::Fixed(Codec::DecimalSplit)),
         ];
         assert_eq!(codes.len(), MODES.len());
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
@@ -996,7 +1030,7 @@ mod tests {
         // Measured on 25 benchmark datasets: these lose nothing against all codecs.
         assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw]);
         assert_eq!(i32::AUTO, i64::AUTO);
-        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Decimal, Codec::Dictionary, Codec::Raw]);
+        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Decimal, Codec::DecimalSplit, Codec::Dictionary, Codec::Raw]);
         assert_eq!(f32::AUTO, f64::AUTO);
     }
 

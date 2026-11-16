@@ -128,7 +128,7 @@ pub fn chosen_exponent<T: Sample>(items: &[T::Word]) -> i32 {
 ///
 /// Candidates are tried from fewest exceptions up; one whose exceptions alone
 /// cost more than the best so far cannot win and is skipped.
-fn best_encoding<T: Sample>(items: &[T::Word]) -> (i32, BitWriter) {
+pub(crate) fn best_encoding<T: Sample>(items: &[T::Word]) -> (i32, BitWriter) {
     let n = items.len();
     let per_exception = (bit_len(n.saturating_sub(1)) + T::Word::BITS) as usize;
     let mut best: Option<(usize, i32, BitWriter)> = None;
@@ -147,6 +147,12 @@ fn best_encoding<T: Sample>(items: &[T::Word]) -> (i32, BitWriter) {
 
 /// Write a scaled block (everything after the codec chose `k`).
 pub fn write_scaled<W: Word>(scaled: &Scaled<W>, out: &mut BitWriter) {
+    write_scaled_header(scaled, out);
+    DeltaRice.encode_block(&scaled.ints, out);
+}
+
+/// The exponent and exceptions of a scaled block: everything but the integers.
+pub(crate) fn write_scaled_header<W: Word>(scaled: &Scaled<W>, out: &mut BitWriter) {
     let n = scaled.ints.len();
     out.write(i64::from(scaled.k).cast_unsigned().zigzag(), K_BITS);
     out.write(scaled.exceptions.len() as u64, bit_len(n));
@@ -154,7 +160,56 @@ pub fn write_scaled<W: Word>(scaled: &Scaled<W>, out: &mut BitWriter) {
         out.write(pos as u64, bit_len(n.saturating_sub(1)));
         out.write(raw.to_u64(), W::BITS);
     }
-    DeltaRice.encode_block(&scaled.ints, out);
+}
+
+/// The scaled form [`DecimalRice`] would choose for `items`.
+pub(crate) fn chosen_scaled<T: Sample>(items: &[T::Word]) -> Scaled<T::Word> {
+    scale::<T>(items, best_encoding::<T>(items).0)
+}
+
+/// `(position, raw word)` of items stored verbatim.
+pub(crate) type Exceptions<W> = Vec<(usize, W)>;
+
+/// Inverse of [`write_scaled_header`] for a block of `n` items.
+///
+/// # Errors
+/// On an out-of-range exponent or impossible exceptions.
+#[allow(clippy::cast_possible_truncation)] // field widths bound every value read
+pub(crate) fn read_scaled_header<T: Sample>(
+    n: usize,
+    input: &mut BitReader<'_>,
+) -> Result<(i32, Exceptions<T::Word>), DecodeError> {
+    let k = input.read(K_BITS)?.unzigzag().cast_signed();
+    if k.unsigned_abs() > u64::from(T::MAX_SCALE.unsigned_abs()) {
+        return Err(DecodeError::Corrupt("decimal exponent out of range"));
+    }
+    let count = input.read(bit_len(n))? as usize;
+    if count > n {
+        return Err(DecodeError::Corrupt("more exceptions than items"));
+    }
+    let mut exceptions = Vec::with_capacity(count);
+    for _ in 0..count {
+        let pos = input.read(bit_len(n.saturating_sub(1)))? as usize;
+        if pos >= n {
+            return Err(DecodeError::Corrupt("exception position out of range"));
+        }
+        if exceptions.last().is_some_and(|&(last, _)| pos <= last) {
+            return Err(DecodeError::Corrupt("exception positions not increasing"));
+        }
+        exceptions.push((pos, T::Word::from_u64_truncate(input.read(T::Word::BITS)?)));
+    }
+    Ok((k as i32, exceptions))
+}
+
+/// Turn decoded integers back into words, putting exceptions in place.
+pub(crate) fn unscale<T: Sample>(ints: Vec<u64>, k: i32, exceptions: Exceptions<T::Word>, out: &mut Vec<T::Word>) {
+    let mut exc = exceptions.into_iter().peekable();
+    for (i, n) in ints.into_iter().enumerate() {
+        match exc.next_if(|&(pos, _)| pos == i) {
+            Some((_, raw)) => out.push(raw),
+            None => out.push(T::from_scaled(n.cast_signed(), k).to_word()),
+        }
+    }
 }
 
 /// Width of the zig-zagged exponent field.
@@ -169,37 +224,11 @@ impl<T: Sample> BlockCodec<T::Word> for DecimalRice<T> {
         out.append(&best_encoding::<T>(items).1);
     }
 
-    #[allow(clippy::cast_possible_truncation)] // field widths bound every value read
     fn decode_block(&self, n: usize, input: &mut BitReader<'_>, out: &mut Vec<T::Word>) -> Result<(), DecodeError> {
-        let k = input.read(K_BITS)?.unzigzag().cast_signed();
-        if k.unsigned_abs() > u64::from(T::MAX_SCALE.unsigned_abs()) {
-            return Err(DecodeError::Corrupt("decimal exponent out of range"));
-        }
-        let k = k as i32;
-        let count = input.read(bit_len(n))? as usize;
-        if count > n {
-            return Err(DecodeError::Corrupt("more exceptions than items"));
-        }
-        let mut exceptions = Vec::with_capacity(count);
-        for _ in 0..count {
-            let pos = input.read(bit_len(n.saturating_sub(1)))? as usize;
-            if pos >= n {
-                return Err(DecodeError::Corrupt("exception position out of range"));
-            }
-            if exceptions.last().is_some_and(|&(last, _)| pos <= last) {
-                return Err(DecodeError::Corrupt("exception positions not increasing"));
-            }
-            exceptions.push((pos, T::Word::from_u64_truncate(input.read(T::Word::BITS)?)));
-        }
+        let (k, exceptions) = read_scaled_header::<T>(n, input)?;
         let mut ints: Vec<u64> = Vec::with_capacity(n);
         DeltaRice.decode_block(n, input, &mut ints)?;
-        let mut exc = exceptions.into_iter().peekable();
-        for (i, n) in ints.into_iter().enumerate() {
-            match exc.next_if(|&(pos, _)| pos == i) {
-                Some((_, raw)) => out.push(raw),
-                None => out.push(T::from_scaled(n.cast_signed(), k).to_word()),
-            }
-        }
+        unscale::<T>(ints, k, exceptions, out);
         Ok(())
     }
 }

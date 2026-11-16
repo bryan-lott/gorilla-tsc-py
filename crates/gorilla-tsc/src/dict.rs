@@ -2,7 +2,7 @@
 //!
 //! Block layout: `d - 1` (`bit_len(n)` bits, `d` distinct values); a
 //! dictionary-coder bit (`0` = [`DecimalRice`], `1` = [`DeltaRice`]) and the
-//! distinct values in numeric order; then, if `d > 1`, a 3-bit
+//! distinct values in numeric order; then, if `d > 1`, a 2-bit
 //! [`IndexCoder`] and one index per item.
 //!
 //! Sorted dictionaries have small gaps, so this pays off even when most
@@ -12,7 +12,7 @@ use core::marker::PhantomData;
 
 use crate::decimal::DecimalRice;
 use crate::delta::DeltaRice;
-use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBlock, Sample};
+use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, Sample};
 
 /// Dictionary block codec for samples of type `T`.
 #[derive(Debug)]
@@ -24,50 +24,41 @@ impl<T> Default for Dictionary<T> {
     }
 }
 
-/// How a block's indices are written.
+/// How a block's indices are written. (Measured on the Elf datasets, these
+/// win all but a handful of blocks; Rice variants were dropped.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IndexCoder {
     /// `bit_len(d - 1)` bits each.
     Fixed,
-    /// [`RiceBlock`] over the indices.
-    Rice,
     /// [`AdaptiveBlock`] over the indices.
     Adaptive,
     /// [`AdaptiveBlock`] over differences of consecutive indices.
     AdaptiveDiff,
-    /// [`AdaptiveBlock`] over move-to-front ranks.
+    /// [`AdaptiveBlock`] over move-to-front ranks (dictionaries up to [`MTF_MAX`]).
     AdaptiveMtf,
-    /// [`RiceBlock`] over move-to-front ranks.
-    RiceMtf,
 }
-
-/// Width of the index-coder field.
-const INDEX_CODER_BITS: u32 = 3;
 
 /// Move-to-front costs O(d) per item; beyond this many distinct values it is
 /// not tried (it only wins on small, recency-skewed dictionaries).
 const MTF_MAX: usize = 256;
 
+/// Width of the index-coder field.
+const INDEX_CODER_BITS: u32 = 2;
+
 impl IndexCoder {
-    const ALL: [Self; 6] = [Self::Fixed, Self::Rice, Self::Adaptive, Self::AdaptiveDiff, Self::AdaptiveMtf, Self::RiceMtf];
+    const ALL: [Self; 4] = [Self::Fixed, Self::Adaptive, Self::AdaptiveDiff, Self::AdaptiveMtf];
 
     const fn code(self) -> u64 {
         match self {
             Self::Fixed => 0,
-            Self::Rice => 1,
-            Self::Adaptive => 2,
-            Self::AdaptiveDiff => 3,
-            Self::AdaptiveMtf => 4,
-            Self::RiceMtf => 5,
+            Self::Adaptive => 1,
+            Self::AdaptiveDiff => 2,
+            Self::AdaptiveMtf => 3,
         }
     }
 
     fn from_code(code: u64) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.code() == code)
-    }
-
-    const fn uses_mtf(self) -> bool {
-        matches!(self, Self::AdaptiveMtf | Self::RiceMtf)
     }
 
     fn encode(self, idx: &[u64], d: usize, out: &mut BitWriter) {
@@ -78,11 +69,9 @@ impl IndexCoder {
                     out.write(i, width);
                 }
             }
-            Self::Rice => RiceBlock::encode(idx, out),
             Self::Adaptive => AdaptiveBlock::encode(idx, out),
             Self::AdaptiveDiff => AdaptiveBlock::encode(&diffs(idx), out),
             Self::AdaptiveMtf => AdaptiveBlock::encode(&mtf_forward(idx, d), out),
-            Self::RiceMtf => RiceBlock::encode(&mtf_forward(idx, d), out),
         }
     }
 
@@ -94,14 +83,20 @@ impl IndexCoder {
                 for _ in 0..n {
                     seq.push(input.read(width)?);
                 }
+                Ok(seq)
             }
-            Self::Rice | Self::RiceMtf => RiceBlock::decode(n, input, &mut seq)?,
-            Self::Adaptive | Self::AdaptiveDiff | Self::AdaptiveMtf => AdaptiveBlock::decode(n, input, &mut seq)?,
-        }
-        match self {
-            Self::AdaptiveDiff => Ok(undiffs(&seq)),
-            Self::AdaptiveMtf | Self::RiceMtf => mtf_inverse(&seq, d),
-            Self::Fixed | Self::Rice | Self::Adaptive => Ok(seq),
+            Self::Adaptive => {
+                AdaptiveBlock::decode(n, input, &mut seq)?;
+                Ok(seq)
+            }
+            Self::AdaptiveDiff => {
+                AdaptiveBlock::decode(n, input, &mut seq)?;
+                Ok(undiffs(&seq))
+            }
+            Self::AdaptiveMtf => {
+                AdaptiveBlock::decode(n, input, &mut seq)?;
+                mtf_inverse(&seq, d)
+            }
         }
     }
 }
@@ -152,7 +147,10 @@ fn mtf_inverse(ranks: &[u64], d: usize) -> Result<Vec<u64>, DecodeError> {
     ranks
         .iter()
         .map(|&r| {
-            let pos = usize::try_from(r).ok().filter(|&p| p < d).ok_or(DecodeError::Corrupt("move-to-front rank out of range"))?;
+            let pos = usize::try_from(r)
+                .ok()
+                .filter(|&p| p < d)
+                .ok_or(DecodeError::Corrupt("move-to-front rank out of range"))?;
             let i = order[pos];
             order[..=pos].rotate_right(1);
             Ok(i)
@@ -187,7 +185,7 @@ impl<T: Sample> BlockCodec<T::Word> for Dictionary<T> {
             items.iter().map(|&w| dict.binary_search_by_key(&key(w), |&x| key(x)).map_or(0, |i| i as u64)).collect();
         let best = IndexCoder::ALL
             .into_iter()
-            .filter(|c| d <= MTF_MAX || !c.uses_mtf())
+            .filter(|&c| c != IndexCoder::AdaptiveMtf || d <= MTF_MAX)
             .map(|c| {
                 let mut w = BitWriter::new();
                 c.encode(&idx, d, &mut w);
@@ -215,6 +213,7 @@ impl<T: Sample> BlockCodec<T::Word> for Dictionary<T> {
             out.extend(core::iter::repeat_n(dict[0], n));
             return Ok(());
         }
+        // Every 2-bit code is a coder, so this cannot fail on well-sized fields.
         let coder = IndexCoder::from_code(input.read(INDEX_CODER_BITS)?).ok_or(DecodeError::Corrupt("unknown index coder"))?;
         for i in coder.decode(n, d, input)? {
             let w = usize::try_from(i).ok().and_then(|i| dict.get(i));
@@ -261,9 +260,8 @@ mod tests {
         for c in IndexCoder::ALL {
             assert_eq!(IndexCoder::from_code(c.code()), Some(c));
         }
-        assert_eq!(IndexCoder::ALL.map(IndexCoder::code), [0, 1, 2, 3, 4, 5]);
-        assert_eq!(IndexCoder::from_code(6), None);
-        assert_eq!(IndexCoder::from_code(7), None);
+        assert_eq!(IndexCoder::ALL.map(IndexCoder::code), [0, 1, 2, 3]);
+        assert_eq!(IndexCoder::from_code(4), None);
     }
 
     #[test]
@@ -271,6 +269,13 @@ mod tests {
         assert_eq!(mtf_forward(&[2, 2, 0, 2, 1, 1], 3), [2, 0, 1, 1, 2, 0]);
         assert_eq!(mtf_inverse(&[2, 0, 1, 1, 2, 0], 3), Ok(vec![2, 2, 0, 2, 1, 1]));
         assert_eq!(mtf_inverse(&[3], 3), Err(DecodeError::Corrupt("move-to-front rank out of range")));
+    }
+
+    #[test]
+    fn differences_invert() {
+        let idx = [3u64, 1, 4, 1, 5];
+        assert_eq!(diffs(&idx), [3, 0u64.wrapping_sub(2), 3, 0u64.wrapping_sub(3), 4]);
+        assert_eq!(undiffs(&diffs(&idx)), idx);
     }
 
     #[test]
@@ -334,14 +339,11 @@ mod tests {
         let mut alt = BitWriter::new();
         DeltaRice.encode_block(&dict, &mut alt);
         let dict_bits = head.bit_len().min(alt.bit_len());
-        assert_eq!(bits(&v), 9 + 1 + dict_bits + 3 + best);
+        assert_eq!(bits(&v), 9 + 1 + dict_bits + 2 + best);
     }
 
     #[test]
-    fn mtf_is_skipped_for_large_dictionaries() {
-        assert!(IndexCoder::AdaptiveMtf.uses_mtf() && IndexCoder::RiceMtf.uses_mtf());
-        assert!(!IndexCoder::Fixed.uses_mtf() && !IndexCoder::Adaptive.uses_mtf());
-        // 300 distinct values: the encoder must not pick an MTF coder.
+    fn large_dictionaries_round_trip() {
         let v: Vec<i32> = (0..600).map(|i| (i * 7919) % 300).collect();
         let w = words(&v);
         let mut out = BitWriter::new();
@@ -390,36 +392,20 @@ mod tests {
     }
 
     #[test]
-    fn unknown_index_coder_is_corrupt() {
-        // n = 3, d = 2 (field bit_len(3) = 2 bits), Delta dictionary [7, 8], index coder 7.
-        let mut w = BitWriter::new();
-        w.write(1, 2);
-        w.write(1, 1);
-        DeltaRice.encode_block(&[7u64, 8], &mut w);
-        w.write(7, 3);
-        let bytes = w.finish();
-        let mut out = Vec::new();
-        assert_eq!(
-            Dictionary::<i64>::default().decode_block(3, &mut BitReader::new(&bytes), &mut out),
-            Err(DecodeError::Corrupt("unknown index coder"))
-        );
-    }
-
-    #[test]
     fn index_out_of_range_is_corrupt() {
         // n = 2, d = 1 is a constant block: fine.
         let mut f = vec![(0, 2), (1, 1)];
         f.extend(ONE_SEVEN);
         assert_eq!(decode_raw(2, &f), Ok(vec![7, 7]));
         // Fixed-width indices into a 2-entry dictionary can't exceed 1, but
-        // Rice ones can: d = 2, Delta dictionary [7, 8], Rice index 5.
+        // adaptive ones can: d = 2, Delta dictionary [7, 8], index 5.
         let mut idx = BitWriter::new();
-        RiceBlock::encode(&[0u64, 5], &mut idx);
+        AdaptiveBlock::encode(&[0u64, 5], &mut idx);
         let mut w = BitWriter::new();
         w.write(1, 2);
         w.write(1, 1);
         DeltaRice.encode_block(&[7u64, 8], &mut w);
-        w.write(IndexCoder::Rice.code(), 3);
+        w.write(IndexCoder::Adaptive.code(), 2);
         w.append(&idx);
         let bytes = w.finish();
         let mut out = Vec::new();
