@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/gorilla-tsc", "crates/gorilla-tsc-py"]
 resolver = "3"
+exclude = ["experiments"]
 
 [workspace.package]
 version = "0.2.0"

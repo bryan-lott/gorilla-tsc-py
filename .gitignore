@@ -13,3 +13,4 @@ target/
 *.so
 *.pyd
 bench-data/
+/experiments/*/target/

@@ -1,0 +1,969 @@
+[
+  {
+    "name": "Air-pressure",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 158.85982208007948,
+        "enc_mbs": 17.89897304296979
+      },
+      "library decimal": {
+        "dec_mbs": 158.49272637377751,
+        "enc_mbs": 22.270278552599045
+      },
+      "library xor": {
+        "dec_mbs": 328.54206632540576,
+        "enc_mbs": 424.18075261263186
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 18.609956364484844
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 19.98003152809735
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 256.01409134353156,
+        "enc_mbs": 273.45817564131846
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 252.90840513512578,
+        "enc_mbs": 239.748524970993
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 124.99146960712633,
+        "enc_mbs": 116.4679534197391
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 252.95633887310387,
+        "enc_mbs": 241.1516848195143
+      }
+    }
+  },
+  {
+    "name": "Air-sensor",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 300.038959352409,
+        "enc_mbs": 8.472564522749604
+      },
+      "library decimal": {
+        "dec_mbs": 74.96860624716753,
+        "enc_mbs": 9.491680469215922
+      },
+      "library xor": {
+        "dec_mbs": 325.6377730796335,
+        "enc_mbs": 407.06395024460716
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 15.310145754743445
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 13.777557799073305
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 68.70723888334877,
+        "enc_mbs": 64.16482598882818
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 51.47407210469484,
+        "enc_mbs": 46.6358685486443
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 51.45194826596869,
+        "enc_mbs": 46.78965783307557
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 171.77737739126988,
+        "enc_mbs": 161.81689141234918
+      }
+    }
+  },
+  {
+    "name": "Basel-temp",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 233.83131110243346,
+        "enc_mbs": 4.924500225779922
+      },
+      "library decimal": {
+        "dec_mbs": 234.25355995967368,
+        "enc_mbs": 5.2360739529930145
+      },
+      "library xor": {
+        "dec_mbs": 328.6213609142484,
+        "enc_mbs": 376.03054841626914
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 4.70028008982733
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 4.961202482248344
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 243.55061585723936,
+        "enc_mbs": 136.60732276230905
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 250.14156307522217,
+        "enc_mbs": 194.2912459797293
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 66.76053103465772,
+        "enc_mbs": 59.549527218700156
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 246.58407415695288,
+        "enc_mbs": 194.31361466586773
+      }
+    }
+  },
+  {
+    "name": "Basel-wind",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 230.77872820150677,
+        "enc_mbs": 4.916236607603041
+      },
+      "library decimal": {
+        "dec_mbs": 230.79823589368394,
+        "enc_mbs": 5.219850035274441
+      },
+      "library xor": {
+        "dec_mbs": 331.3846534938506,
+        "enc_mbs": 359.83762327249826
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 4.595680925067371
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 4.905025854421935
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 250.32542304996497,
+        "enc_mbs": 242.20581681489665
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 247.78426662826013,
+        "enc_mbs": 204.3620048117034
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 62.88558196322027,
+        "enc_mbs": 56.615784409923755
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 248.14388374955334,
+        "enc_mbs": 204.36096072131244
+      }
+    }
+  },
+  {
+    "name": "Bird-migration",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 98.44689282711515,
+        "enc_mbs": 16.050202895750076
+      },
+      "library decimal": {
+        "dec_mbs": 98.32307983505416,
+        "enc_mbs": 19.506128155546325
+      },
+      "library xor": {
+        "dec_mbs": 333.0694175677097,
+        "enc_mbs": 404.5113501135152
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 16.45417793548239
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 17.632046229798046
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 99.37007035999633,
+        "enc_mbs": 93.98249338534423
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 99.46158683990848,
+        "enc_mbs": 89.75142260553972
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 99.46136667932987,
+        "enc_mbs": 89.63553863037173
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 263.7435846640914,
+        "enc_mbs": 233.75076243996395
+      }
+    }
+  },
+  {
+    "name": "Bitcoin-price",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 239.94031838623613,
+        "enc_mbs": 14.010042400755433
+      },
+      "library decimal": {
+        "dec_mbs": 239.8533779940593,
+        "enc_mbs": 16.71229217154407
+      },
+      "library xor": {
+        "dec_mbs": 329.4558838848571,
+        "enc_mbs": 408.0772456506312
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 13.93389136127128
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 15.003150693271115
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 268.95838156297094,
+        "enc_mbs": 258.0095448303368
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 268.8580334372343,
+        "enc_mbs": 226.80749172300867
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 75.09834495531933,
+        "enc_mbs": 68.26431316589422
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 269.3592497610553,
+        "enc_mbs": 226.0545679080978
+      }
+    }
+  },
+  {
+    "name": "City-temp",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 164.67070613591906,
+        "enc_mbs": 23.44125010467879
+      },
+      "library decimal": {
+        "dec_mbs": 164.48317436193503,
+        "enc_mbs": 30.68657847687924
+      },
+      "library xor": {
+        "dec_mbs": 355.3882088702233,
+        "enc_mbs": 409.623390900205
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 25.519028727408433
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 28.550450318180882
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 169.81792516411147,
+        "enc_mbs": 163.08621262560064
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 172.17191624350463,
+        "enc_mbs": 150.1956842452686
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 172.37877529983373,
+        "enc_mbs": 150.39239804108342
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 256.6439645963191,
+        "enc_mbs": 241.42584679268973
+      }
+    }
+  },
+  {
+    "name": "Dew-point-temp",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 199.89700409859722,
+        "enc_mbs": 20.763378749309624
+      },
+      "library decimal": {
+        "dec_mbs": 200.0646702579583,
+        "enc_mbs": 26.696553159063313
+      },
+      "library xor": {
+        "dec_mbs": 329.7842037419415,
+        "enc_mbs": 399.7887137776308
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 22.268371104149164
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 23.931587216436338
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 254.24489386017436,
+        "enc_mbs": 271.44900745662966
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 254.24869150630357,
+        "enc_mbs": 241.59229473240447
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 139.18527323187757,
+        "enc_mbs": 126.43931945349047
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 254.04716910131395,
+        "enc_mbs": 241.6833074029878
+      }
+    }
+  },
+  {
+    "name": "IR-bio-temp",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 262.0122717138968,
+        "enc_mbs": 26.921092005410465
+      },
+      "library decimal": {
+        "dec_mbs": 261.9497374309059,
+        "enc_mbs": 36.9313654922067
+      },
+      "library xor": {
+        "dec_mbs": 342.54079519627135,
+        "enc_mbs": 408.17731587822954
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 30.180707143101174
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 32.62241799647023
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 296.7682777170903,
+        "enc_mbs": 283.6047835990888
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 296.14653012286414,
+        "enc_mbs": 251.28232459234457
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 296.1541249077789,
+        "enc_mbs": 250.82165421240023
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 248.87146490461208,
+        "enc_mbs": 232.91290202830092
+      }
+    }
+  },
+  {
+    "name": "PM10-dust",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 287.48896443950093,
+        "enc_mbs": 26.333363393287595
+      },
+      "library decimal": {
+        "dec_mbs": 287.8958973943227,
+        "enc_mbs": 33.949026892820136
+      },
+      "library xor": {
+        "dec_mbs": 410.5286111424623,
+        "enc_mbs": 522.4706095639198
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 28.641289423743203
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 31.12045878936491
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 321.75612018361625,
+        "enc_mbs": 286.0176947911903
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 335.46231188625467,
+        "enc_mbs": 275.0525660452714
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 335.22278363900074,
+        "enc_mbs": 274.20685253645433
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 274.6841280629478,
+        "enc_mbs": 248.8956091099003
+      }
+    }
+  },
+  {
+    "name": "Stocks-DE",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 213.9722130542906,
+        "enc_mbs": 17.282007977085726
+      },
+      "library decimal": {
+        "dec_mbs": 213.7845522372106,
+        "enc_mbs": 21.030578691066136
+      },
+      "library xor": {
+        "dec_mbs": 337.30160737866237,
+        "enc_mbs": 424.62094050595755
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 17.767889158128717
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 19.031155162067858
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 248.2392432329784,
+        "enc_mbs": 115.87804543139664
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 247.63290888869832,
+        "enc_mbs": 122.8450529520688
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 217.81186223239624,
+        "enc_mbs": 150.30260946414057
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 247.6841223720853,
+        "enc_mbs": 122.57884803315446
+      }
+    }
+  },
+  {
+    "name": "Stocks-UK",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 211.3116007220373,
+        "enc_mbs": 18.12349998471993
+      },
+      "library decimal": {
+        "dec_mbs": 211.30707983418006,
+        "enc_mbs": 22.10561986565799
+      },
+      "library xor": {
+        "dec_mbs": 336.75993748176796,
+        "enc_mbs": 464.2203517095152
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 18.726178582796972
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 20.028017133525847
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 219.02764621171883,
+        "enc_mbs": 144.135755870622
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 219.56306177859537,
+        "enc_mbs": 158.2088584114408
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 219.72944156329976,
+        "enc_mbs": 158.11124089149237
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 241.0390987728342,
+        "enc_mbs": 135.4150498292027
+      }
+    }
+  },
+  {
+    "name": "Stocks-USA",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 224.53759512134468,
+        "enc_mbs": 24.381608674290863
+      },
+      "library decimal": {
+        "dec_mbs": 224.64736684855248,
+        "enc_mbs": 32.41852647695751
+      },
+      "library xor": {
+        "dec_mbs": 342.2796308759145,
+        "enc_mbs": 431.24246014590796
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 26.853930596665954
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 28.95453700196387
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 247.05844204974113,
+        "enc_mbs": 254.82525866635405
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 246.99193000882667,
+        "enc_mbs": 228.0510915447188
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 235.31993311164678,
+        "enc_mbs": 204.09612735343637
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 247.02975815344004,
+        "enc_mbs": 227.73507197992325
+      }
+    }
+  },
+  {
+    "name": "Wind-speed",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 204.1849027641285,
+        "enc_mbs": 24.002622971539466
+      },
+      "library decimal": {
+        "dec_mbs": 204.15799013572072,
+        "enc_mbs": 32.181822165988045
+      },
+      "library xor": {
+        "dec_mbs": 337.4255525006446,
+        "enc_mbs": 405.94823169049374
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 26.751313133616442
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 28.71615896606533
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 245.68973529342514,
+        "enc_mbs": 248.843961378881
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 245.13209152147041,
+        "enc_mbs": 222.4190415397827
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 205.28303762238457,
+        "enc_mbs": 177.16114069421266
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 245.44587681591588,
+        "enc_mbs": 223.30880864293303
+      }
+    }
+  },
+  {
+    "name": "Blockchain-tr",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 116.98729549136692,
+        "enc_mbs": 18.34996896989217
+      },
+      "library decimal": {
+        "dec_mbs": 117.01630024108525,
+        "enc_mbs": 22.566376698990126
+      },
+      "library xor": {
+        "dec_mbs": 368.9217232506018,
+        "enc_mbs": 428.30870444422914
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 18.953014580557777
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 20.54964109564487
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 123.54211129402391,
+        "enc_mbs": 115.60213854534642
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 123.56497157513861,
+        "enc_mbs": 109.0737744211806
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 123.52273057137863,
+        "enc_mbs": 109.41111885202518
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 264.70430578947196,
+        "enc_mbs": 235.28069267328596
+      }
+    }
+  },
+  {
+    "name": "City-lat",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 187.53966538708272,
+        "enc_mbs": 14.288815928644093
+      },
+      "library decimal": {
+        "dec_mbs": 187.57344779609437,
+        "enc_mbs": 17.134722228897175
+      },
+      "library xor": {
+        "dec_mbs": 330.62689564036737,
+        "enc_mbs": 366.01499732190683
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 14.551469221132532
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 15.553883764583487
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 232.2741277717311,
+        "enc_mbs": 252.23041609313844
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 231.3685823235893,
+        "enc_mbs": 224.76662187432976
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 76.94047110815033,
+        "enc_mbs": 70.1944510071802
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 232.05031973348824,
+        "enc_mbs": 224.93786928685464
+      }
+    }
+  },
+  {
+    "name": "City-lon",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 183.95492316984738,
+        "enc_mbs": 13.686449014318056
+      },
+      "library decimal": {
+        "dec_mbs": 183.61685024171896,
+        "enc_mbs": 16.317604474894384
+      },
+      "library xor": {
+        "dec_mbs": 330.7695953515904,
+        "enc_mbs": 365.5952090362232
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 13.921381340838249
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 14.907732702327428
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 242.8947610062707,
+        "enc_mbs": 253.3486780619299
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 242.48732701945252,
+        "enc_mbs": 225.5969231531078
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 73.07348027576546,
+        "enc_mbs": 67.31697105646073
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 254.34764908634816,
+        "enc_mbs": 225.03277645940145
+      }
+    }
+  },
+  {
+    "name": "Food-price",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 140.17123848110566,
+        "enc_mbs": 9.935109234564367
+      },
+      "library decimal": {
+        "dec_mbs": 140.3396501332424,
+        "enc_mbs": 10.99285784678561
+      },
+      "library xor": {
+        "dec_mbs": 373.15267948930835,
+        "enc_mbs": 467.43527838998205
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 9.662684025939747
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 10.317654447100612
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 144.0932965947132,
+        "enc_mbs": 108.30944457035292
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 143.4739465575654,
+        "enc_mbs": 124.28104136528817
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 143.23504940933142,
+        "enc_mbs": 124.14574999809905
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 246.8917412143681,
+        "enc_mbs": 225.26977898158245
+      }
+    }
+  },
+  {
+    "name": "POI-lat",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 42.308206916793814,
+        "enc_mbs": 7.969390991008366
+      },
+      "library decimal": {
+        "dec_mbs": 42.20714574604236,
+        "enc_mbs": 8.924644823326041
+      },
+      "library xor": {
+        "dec_mbs": 330.028815352787,
+        "enc_mbs": 363.2706198288377
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 31.19269131358518
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 40.76432965233419
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 42.435747218934814,
+        "enc_mbs": 39.566456862681385
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 42.46964233964407,
+        "enc_mbs": 38.42714097196735
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 42.48684262027122,
+        "enc_mbs": 38.47520812234301
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 198.29763185421305,
+        "enc_mbs": 156.46961146050208
+      }
+    }
+  },
+  {
+    "name": "POI-lon",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 330.7015266683312,
+        "enc_mbs": 6.197204749313607
+      },
+      "library decimal": {
+        "dec_mbs": 96.26690309581639,
+        "enc_mbs": 6.814446628897577
+      },
+      "library xor": {
+        "dec_mbs": 331.53504994940005,
+        "enc_mbs": 365.2215754314251
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 30.302874198875777
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 56.566654757147994
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 96.69053368048112,
+        "enc_mbs": 85.78866067546099
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 104.40453533986404,
+        "enc_mbs": 86.91410430153158
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 104.35497659993494,
+        "enc_mbs": 86.84582274141515
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 93.77317199820426,
+        "enc_mbs": 155.97279159845363
+      }
+    }
+  },
+  {
+    "name": "SSD-bench",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 133.6747452513046,
+        "enc_mbs": 17.306391170580493
+      },
+      "library decimal": {
+        "dec_mbs": 133.30297045966154,
+        "enc_mbs": 20.78241351985978
+      },
+      "library xor": {
+        "dec_mbs": 382.1837388889186,
+        "enc_mbs": 480.7960306186337
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 17.890411459923808
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 19.034104992481346
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 141.80110595967315,
+        "enc_mbs": 132.3305149913189
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 141.6801404580758,
+        "enc_mbs": 125.00153153831208
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 141.63181202490097,
+        "enc_mbs": 125.01247218920615
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 278.27957324438694,
+        "enc_mbs": 241.0707353710611
+      }
+    }
+  },
+  {
+    "name": "Vehicle-charge",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 130.77119374455322,
+        "enc_mbs": 19.627014460831607
+      },
+      "library decimal": {
+        "dec_mbs": 130.5643688106913,
+        "enc_mbs": 25.167839652320566
+      },
+      "library xor": {
+        "dec_mbs": 333.8701151827312,
+        "enc_mbs": 363.21814485931316
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 20.604369552568073
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 22.371567352338186
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 134.27530392394362,
+        "enc_mbs": 128.1869755236504
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 134.1194828795196,
+        "enc_mbs": 119.81436713663072
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 126.72461658338116,
+        "enc_mbs": 113.78680475256816
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 263.33139422144654,
+        "enc_mbs": 241.51238684664497
+      }
+    }
+  },
+  {
+    "name": "Stocks-Germany (5M)",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 278.51211946532277,
+        "enc_mbs": 17.406730661763454
+      },
+      "library decimal": {
+        "dec_mbs": 277.9345309231175,
+        "enc_mbs": 21.059860320581723
+      },
+      "library xor": {
+        "dec_mbs": 323.1982196173595,
+        "enc_mbs": 405.9510063007859
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 17.75170917194861
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 19.045802676626067
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 316.28898138145144,
+        "enc_mbs": 188.78637175346967
+      },
+      "profile: learned order/coder, sampled k": {
+        "dec_mbs": 317.44846101224186,
+        "enc_mbs": 186.72025998704936
+      },
+      "profile: universal: sampled k, 1st diff, adaptive": {
+        "dec_mbs": 317.19542906795726,
+        "enc_mbs": 186.52835253575105
+      },
+      "profile: universal: sampled k, 1st diff, rice": {
+        "dec_mbs": 264.5662067639539,
+        "enc_mbs": 113.21754748352433
+      }
+    }
+  },
+  {
+    "name": "Stock timestamps (s)",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 258.43746473338126,
+        "enc_mbs": 23.244359781667775
+      },
+      "library delta": {
+        "dec_mbs": 260.3169276594421,
+        "enc_mbs": 28.469573081491966
+      },
+      "library dod": {
+        "dec_mbs": 348.91081731347117,
+        "enc_mbs": 590.8761280785459
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 23.90509802779983
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 25.693302188923024
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 261.97445100715913,
+        "enc_mbs": 278.828383764721
+      },
+      "profile: universal: 1st diff, adaptive": {
+        "dec_mbs": 263.40572313072795,
+        "enc_mbs": 278.6830486966858
+      },
+      "profile: universal: 2nd diff, adaptive": {
+        "dec_mbs": 220.75707103248948,
+        "enc_mbs": 232.8602255855557
+      }
+    }
+  },
+  {
+    "name": "Scrape timestamps (10 s +/- 5 ms)",
+    "timing": {
+      "library auto": {
+        "dec_mbs": 319.1909148689901,
+        "enc_mbs": 18.909945996219825
+      },
+      "library delta": {
+        "dec_mbs": 319.19726993766994,
+        "enc_mbs": 22.636265871103028
+      },
+      "library dod": {
+        "dec_mbs": 352.79176915635054,
+        "enc_mbs": 558.9088534236381
+      },
+      "probe first 128 of each block": {
+        "enc_mbs": 19.049293344437643
+      },
+      "probe first 64 of each block": {
+        "enc_mbs": 20.370121699280542
+      },
+      "profile: learned from first 10k (locked)": {
+        "dec_mbs": 306.7469372276902,
+        "enc_mbs": 319.77590104854517
+      },
+      "profile: universal: 1st diff, adaptive": {
+        "dec_mbs": 127.17968290575816,
+        "enc_mbs": 130.72478559909618
+      },
+      "profile: universal: 2nd diff, adaptive": {
+        "dec_mbs": 204.68927260110505,
+        "enc_mbs": 216.13078030289972
+      }
+    }
+  }
+]
