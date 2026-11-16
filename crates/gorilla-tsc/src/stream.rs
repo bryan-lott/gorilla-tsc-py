@@ -11,6 +11,7 @@ use core::str::FromStr;
 use crate::block::{BlockCodec, PerItem};
 use crate::decimal::DecimalRice;
 use crate::delta::DeltaRice;
+use crate::dict::Dictionary;
 use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
@@ -55,6 +56,9 @@ pub trait Sample: Copy + Send + Sync + fmt::Debug + sealed::Sealed + 'static {
     fn to_scaled(self, k: i32) -> Option<i64>;
     /// `n / 10^k` (or `n * 10^-k`) as `Self`.
     fn from_scaled(n: i64, k: i32) -> Self;
+    /// A key in numeric order (floats: IEEE total order, so `-0.0 < 0.0` and
+    /// NaNs sort by payload), distinct for distinct words.
+    fn order_key(self) -> i64;
 }
 
 /// Exact powers of ten representable in an `f64` (10^0 ..= 10^22).
@@ -87,7 +91,7 @@ fn unscale_f64(n: i64, k: i32) -> f64 {
 }
 
 macro_rules! impl_sample {
-    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $auto:expr, $scale:expr, $unscale:expr) => {
+    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $auto:expr, $scale:expr, $unscale:expr, $key:expr) => {
         impl sealed::Sealed for $t {}
         impl Sample for $t {
             type Word = $w;
@@ -110,6 +114,10 @@ macro_rules! impl_sample {
                 let f: fn($w) -> $t = $from;
                 f(w)
             }
+            fn order_key(self) -> i64 {
+                let f: fn($t) -> i64 = $key;
+                f(self)
+            }
         }
     };
 }
@@ -119,15 +127,36 @@ macro_rules! impl_sample {
 /// codec: the stacked modes never win, `Decimal` on integers is `Delta` plus a
 /// header, and `Delta` on raw float bits only ever won constant runs. `Raw`
 /// caps every block at its uncompressed size.
-const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Raw];
-const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Decimal, Codec::Raw];
+const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw];
+const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Decimal, Codec::Dictionary, Codec::Raw];
 
 impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
+    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default(), i64::from);
 impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(v), |n, _| n);
-impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32);
-impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64);
+    |v, k| (k == 0).then_some(v), |n, _| n, |v| v);
+impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32,
+    |v| i64::from(total_order(v.to_bits().cast_signed())));
+impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64,
+    |v| total_order(v.to_bits().cast_signed()));
+
+/// IEEE 754 total order as a signed integer order: negative floats have their
+/// magnitude bits flipped so they sort descending in magnitude (the trick
+/// behind `f64::total_cmp`).
+macro_rules! total_order_fn {
+    ($($t:ty),*) => {
+        trait TotalOrder { fn total(self) -> Self; }
+        $(impl TotalOrder for $t {
+            fn total(self) -> Self {
+                self ^ (((self >> (<$t>::BITS - 1)).cast_unsigned() >> 1).cast_signed())
+            }
+        })*
+    };
+}
+total_order_fn!(i32, i64);
+
+fn total_order<I: TotalOrder>(bits: I) -> I {
+    bits.total()
+}
 
 fn scale_f32(v: f32, k: i32) -> Option<i64> {
     scaled_int(f64::from(v), k).filter(|&n| unscale_f32(n, k).to_bits() == v.to_bits())
@@ -157,6 +186,8 @@ pub enum Codec {
     Decimal,
     /// Every word verbatim: the bound no block ever needs to exceed.
     Raw,
+    /// The block's distinct values in numeric order, then an index per item.
+    Dictionary,
 }
 
 /// How a stream chooses codecs.
@@ -259,11 +290,13 @@ impl Codec {
             Self::Delta => "delta",
             Self::Decimal => "decimal",
             Self::Raw => "raw",
+            Self::Dictionary => "dictionary",
         }
     }
 
     /// Every codec.
-    pub const ALL: [Self; 7] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Raw];
+    pub const ALL: [Self; 8] =
+        [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Raw, Self::Dictionary];
 
     /// Code in the header's mode field and in [`Mode::Auto`]'s block selector.
     const fn code(self) -> u8 {
@@ -275,6 +308,7 @@ impl Codec {
             Self::Delta => 4,
             Self::Decimal => 5,
             Self::Raw => 7,
+            Self::Dictionary => 8,
         }
     }
 
@@ -387,6 +421,7 @@ fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter)
         Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
         Codec::Delta => DeltaRice.encode_block(items, out),
         Codec::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Codec::Dictionary => Dictionary::<T>::default().encode_block(items, out),
         Codec::Raw => {
             for &w in items {
                 out.write(w.to_u64(), W::<T>::BITS);
@@ -433,6 +468,7 @@ fn decode_codec<T: Sample>(
         Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
         Codec::Delta => DeltaRice.decode_block(n, input, out),
         Codec::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
+        Codec::Dictionary => Dictionary::<T>::default().decode_block(n, input, out),
         Codec::Raw => {
             for _ in 0..n {
                 out.push(W::<T>::from_u64_truncate(input.read(W::<T>::BITS)?));
@@ -691,7 +727,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 8] = [
+    const MODES: [Mode; 9] = [
         Mode::Fixed(Codec::Xor),
         Mode::Fixed(Codec::Dod),
         Mode::Fixed(Codec::XorDod),
@@ -699,6 +735,7 @@ mod tests {
         Mode::Fixed(Codec::Delta),
         Mode::Fixed(Codec::Decimal),
         Mode::Fixed(Codec::Raw),
+        Mode::Fixed(Codec::Dictionary),
         Mode::Auto,
     ];
 
@@ -726,7 +763,7 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "auto"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "auto"], MODES.map(Mode::name));
         assert_eq!(Mode::all(), MODES);
     }
 
@@ -746,7 +783,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'auto' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'auto' (got 'rle')".into()))
         );
     }
 
@@ -835,6 +872,7 @@ mod tests {
             (5, Mode::Fixed(Codec::Decimal)),
             (6, Mode::Auto),
             (7, Mode::Fixed(Codec::Raw)),
+            (8, Mode::Fixed(Codec::Dictionary)),
         ];
         assert_eq!(codes.len(), MODES.len());
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
@@ -956,9 +994,9 @@ mod tests {
     #[test]
     fn auto_candidates_by_sample_type() {
         // Measured on 25 benchmark datasets: these lose nothing against all codecs.
-        assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Raw]);
+        assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw]);
         assert_eq!(i32::AUTO, i64::AUTO);
-        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Decimal, Codec::Raw]);
+        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Decimal, Codec::Dictionary, Codec::Raw]);
         assert_eq!(f32::AUTO, f64::AUTO);
     }
 

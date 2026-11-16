@@ -67,7 +67,7 @@ def test_delta_of_delta_bucket_boundaries(dod):
 
 # --- values ----------------------------------------------------------------
 
-MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "auto"]
+MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "auto"]
 PRECISIONS = {"f32": 32, "f64": 64}
 
 

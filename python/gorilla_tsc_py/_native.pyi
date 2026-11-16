@@ -3,7 +3,7 @@ from typing import Literal, TypedDict
 
 IntPrecision = Literal["int32", "int64"]
 FloatPrecision = Literal["f32", "f64"]
-Mode = Literal["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "auto"]
+Mode = Literal["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "auto"]
 
 class DecodeError(ValueError): ...
 

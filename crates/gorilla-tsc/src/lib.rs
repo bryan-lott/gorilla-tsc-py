@@ -18,6 +18,7 @@ mod block;
 mod coder;
 mod decimal;
 mod delta;
+mod dict;
 mod error;
 mod pairs;
 mod range;
