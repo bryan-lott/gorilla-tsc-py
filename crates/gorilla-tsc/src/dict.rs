@@ -342,6 +342,49 @@ mod tests {
         assert_eq!(bits(&v), 9 + 1 + dict_bits + 2 + best);
     }
 
+    /// The index-coder field of a Dictionary block of `v`.
+    fn index_coder_of(v: &[i64]) -> u64 {
+        let mut out = BitWriter::new();
+        Dictionary::<i64>::default().encode_block(&words(v), &mut out);
+        let bytes = out.finish();
+        let mut r = BitReader::new(&bytes);
+        let d = usize::try_from(r.read(bit_len(v.len())).unwrap()).unwrap() + 1;
+        let mut dict: Vec<u64> = Vec::new();
+        if r.read_bit().unwrap() {
+            DeltaRice.decode_block(d, &mut r, &mut dict).unwrap();
+        } else {
+            DecimalRice::<i64>::default().decode_block(d, &mut r, &mut dict).unwrap();
+        }
+        r.read(INDEX_CODER_BITS).unwrap()
+    }
+
+    /// 50 values, each item usually one of the 3 most recently used.
+    fn recency_skewed(n: usize) -> Vec<i64> {
+        let mut x = 12345u64;
+        let mut recent: Vec<i64> = (0..50).map(|i| i * 1009).collect();
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                let k = usize::try_from(x % 100).unwrap();
+                let v = recent.remove(if k < 80 { k % 3 } else { k % 50 });
+                recent.insert(0, v);
+                v
+            })
+            .collect()
+    }
+
+    #[test]
+    fn move_to_front_wins_on_recency_but_not_past_its_limit() {
+        let v = recency_skewed(1000);
+        assert_eq!(index_coder_of(&v), IndexCoder::AdaptiveMtf.code());
+        assert_eq!(round_trip(&v), words(&v));
+        // Over MTF_MAX distinct values it is never tried.
+        let v: Vec<i64> = (0..600).map(|i| (i * 7919) % 300).collect();
+        assert_ne!(index_coder_of(&v), IndexCoder::AdaptiveMtf.code());
+    }
+
     #[test]
     fn large_dictionaries_round_trip() {
         let v: Vec<i32> = (0..600).map(|i| (i * 7919) % 300).collect();

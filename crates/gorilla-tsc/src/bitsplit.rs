@@ -248,6 +248,32 @@ mod tests {
     }
 
     #[test]
+    fn empty_blocks_take_the_first_split() {
+        // Every (r, d = 0) costs nothing; the first candidate wins the tie.
+        assert_eq!(choose::<u64>(&[]), (32, vec![]));
+        assert_eq!(choose::<u32>(&[]), (16, vec![]));
+    }
+
+    #[test]
+    fn eight_entry_dictionaries_use_one_context() {
+        // Exactly CONTEXT_MAX skewed high patterns: the smallest dictionary coded
+        // without previous-symbol contexts, at the boundary of the context table.
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let v: Vec<u64> = (0..2000u64)
+            .map(|i| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                let pattern = (i % 100).saturating_sub(92); // 0 for 93%, then 1..=7
+                (0x3F0 << 52) | (pattern << 52) | (x >> 12)
+            })
+            .collect();
+        let (r, dict) = choose(&v);
+        assert_eq!((r, dict.len()), (52, CONTEXT_MAX));
+        assert_eq!(round_trip(&v), v);
+    }
+
+    #[test]
     fn real_doubles_beat_raw_by_far() {
         let v = real_doubles(1000, 0.6, 0.1);
         assert!(bits(&v) < 1000 * 56, "{} bits", bits(&v));

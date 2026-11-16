@@ -230,6 +230,9 @@ mod tests {
         assert_eq!(err("delta:third:rice"), "order must be one of 'first', 'second', 'zero' (got 'third')");
         assert_eq!(err("delta:first:huffman"), "coder must be one of 'rice', 'adaptive' (got 'huffman')");
         assert_eq!(err("decimal:99:first:rice"), "decimal exponent must be within -18..=18 (got 99)");
+        assert_eq!(err("decimal:-19:first:rice"), "decimal exponent must be within -18..=18 (got -19)");
+        assert_eq!("decimal:18:first:rice".parse::<Profile>().map(Profile::codec), Ok(Codec::Decimal));
+        assert_eq!("decimal:-18:first:rice".parse::<Profile>().map(Profile::codec), Ok(Codec::Decimal));
     }
 
     #[test]
@@ -279,17 +282,25 @@ mod tests {
         let make = |bad: usize| -> Vec<f64> {
             (0..1000).map(|i| if i < bad { f64::from(u32::try_from(i).unwrap()) + 0.123_456_789 } else { f64::from(u32::try_from(i % 50).unwrap()) / 100.0 }).collect()
         };
-        let locked = Profile::Decimal { exponent: 2, delta: SECOND_ADAPTIVE };
+        // A poor recipe, so a searched block is visibly different from a locked one.
+        let zero_rice = DeltaChoice { order: Order::Zero, coder: Coder::Rice };
+        let locked = Profile::Decimal { exponent: 2, delta: zero_rice };
         let at_limit = make(10);
         let words: Vec<u64> = at_limit.iter().map(|x| x.to_word()).collect();
         let mut expected = BitWriter::new();
         let scaled = scale::<f64>(&words, 2);
         write_scaled_header(&scaled, &mut expected);
-        DeltaRice::encode_with(&scaled.ints, SECOND_ADAPTIVE, &mut expected);
+        DeltaRice::encode_with(&scaled.ints, zero_rice, &mut expected);
         assert_eq!(block_bits(locked, &at_limit), expected.bit_len(), "10 of 1000 stays locked");
         let over = make(11);
         let words: Vec<u64> = over.iter().map(|x| x.to_word()).collect();
-        assert_eq!(block_bits(locked, &over), best_encoding::<f64>(&words).1.bit_len(), "11 of 1000 is searched");
+        let searched = best_encoding::<f64>(&words).1.bit_len();
+        assert_eq!(block_bits(locked, &over), searched, "11 of 1000 is searched");
+        let mut kept = BitWriter::new();
+        let scaled = scale::<f64>(&words, 2);
+        write_scaled_header(&scaled, &mut kept);
+        DeltaRice::encode_with(&scaled.ints, zero_rice, &mut kept);
+        assert!(searched < kept.bit_len(), "the search must matter for this test");
     }
 
     #[test]
