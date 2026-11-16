@@ -114,11 +114,13 @@ macro_rules! impl_sample {
     };
 }
 
-/// Decimal on integers is `Delta` plus a header, so it can never win.
-const INT_AUTO: &[Codec] = &[Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Delta];
-/// Delta on raw float bits essentially never beats `Decimal` (measured on the
-/// benchmark datasets: it won only constant runs, by the decimal header).
-const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Decimal];
+/// What [`Mode::Auto`] tries, per element family. On the 25 benchmark
+/// datasets (Elf, Chimp, timestamps) these give the same size as trying every
+/// codec: the stacked modes never win, `Decimal` on integers is `Delta` plus a
+/// header, and `Delta` on raw float bits only ever won constant runs. `Raw`
+/// caps every block at its uncompressed size.
+const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Raw];
+const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Decimal, Codec::Raw];
 
 impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
     |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
@@ -153,6 +155,8 @@ pub enum Codec {
     /// Floats scaled to integers by a per-block power of ten, then delta coded.
     /// Values that do not scale exactly are stored verbatim. Integers: as `Delta`.
     Decimal,
+    /// Every word verbatim: the bound no block ever needs to exceed.
+    Raw,
 }
 
 /// How a stream chooses codecs.
@@ -160,7 +164,7 @@ pub enum Codec {
 pub enum Mode {
     /// The same codec for every block.
     Fixed(Codec),
-    /// Per block, whichever of [`Sample::AUTO`] is smallest (a selector per block).
+    /// Per block, whichever of [`Sample::AUTO`] is smallest (a 4-bit selector per block).
     Auto,
 }
 
@@ -254,11 +258,12 @@ impl Codec {
             Self::DodXor => "dod_xor",
             Self::Delta => "delta",
             Self::Decimal => "decimal",
+            Self::Raw => "raw",
         }
     }
 
     /// Every codec.
-    pub const ALL: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
+    pub const ALL: [Self; 7] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Raw];
 
     /// Code in the header's mode field and in [`Mode::Auto`]'s block selector.
     const fn code(self) -> u8 {
@@ -269,6 +274,7 @@ impl Codec {
             Self::DodXor => 3,
             Self::Delta => 4,
             Self::Decimal => 5,
+            Self::Raw => 7,
         }
     }
 
@@ -381,6 +387,11 @@ fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter)
         Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
         Codec::Delta => DeltaRice.encode_block(items, out),
         Codec::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Codec::Raw => {
+            for &w in items {
+                out.write(w.to_u64(), W::<T>::BITS);
+            }
+        }
     }
 }
 
@@ -405,7 +416,7 @@ fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
 }
 
 /// Width of [`Mode::Auto`]'s per-block mode selector.
-const AUTO_SELECTOR_BITS: u32 = 3;
+const AUTO_SELECTOR_BITS: u32 = 4;
 
 /// Decode one block of `n` items coded with `codec`.
 fn decode_codec<T: Sample>(
@@ -422,6 +433,12 @@ fn decode_codec<T: Sample>(
         Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
         Codec::Delta => DeltaRice.decode_block(n, input, out),
         Codec::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
+        Codec::Raw => {
+            for _ in 0..n {
+                out.push(W::<T>::from_u64_truncate(input.read(W::<T>::BITS)?));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -674,13 +691,14 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 7] = [
+    const MODES: [Mode; 8] = [
         Mode::Fixed(Codec::Xor),
         Mode::Fixed(Codec::Dod),
         Mode::Fixed(Codec::XorDod),
         Mode::Fixed(Codec::DodXor),
         Mode::Fixed(Codec::Delta),
         Mode::Fixed(Codec::Decimal),
+        Mode::Fixed(Codec::Raw),
         Mode::Auto,
     ];
 
@@ -708,7 +726,8 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "auto"], MODES.map(Mode::name));
+        assert_eq!(Mode::all(), MODES);
     }
 
     #[test]
@@ -727,7 +746,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'auto' (got 'rle')".into()))
         );
     }
 
@@ -806,11 +825,25 @@ mod tests {
 
     #[test]
     fn every_descriptor_decodes() {
+        // The format's mode codes; Auto keeps 6 from before Raw existed.
+        let codes = [
+            (0, Mode::Fixed(Codec::Xor)),
+            (1, Mode::Fixed(Codec::Dod)),
+            (2, Mode::Fixed(Codec::XorDod)),
+            (3, Mode::Fixed(Codec::DodXor)),
+            (4, Mode::Fixed(Codec::Delta)),
+            (5, Mode::Fixed(Codec::Decimal)),
+            (6, Mode::Auto),
+            (7, Mode::Fixed(Codec::Raw)),
+        ];
+        assert_eq!(codes.len(), MODES.len());
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
-            for (mi, m) in MODES.into_iter().enumerate() {
-                let d = u8::try_from(ti << 4 | mi).unwrap();
+            for (code, m) in codes {
+                let d = u8::try_from(ti << 4).unwrap() | code;
                 let (h, _) = read_header(&[b'G', 1, d, 5, 0]).unwrap();
                 assert_eq!((h.sample_type, h.config.mode), (t, m));
+                // and the encoder writes the same code
+                assert_eq!(Header { sample_type: t, config: cfg(m, 5), count: 0 }.descriptor(), d);
             }
         }
     }
@@ -900,7 +933,7 @@ mod tests {
         }));
         let per_block: usize = v
             .chunks(100)
-            .map(|b| 3 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .map(|b| 4 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
         let best_single = Codec::ALL.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
@@ -922,12 +955,21 @@ mod tests {
 
     #[test]
     fn auto_candidates_by_sample_type() {
-        // Decimal on integers is Delta plus a header, so it can never win.
-        assert_eq!(i64::AUTO, [Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Delta]);
+        // Measured on 25 benchmark datasets: these lose nothing against all codecs.
+        assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Raw]);
         assert_eq!(i32::AUTO, i64::AUTO);
-        // Raw-bit Delta essentially never beats Decimal on floats.
-        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Decimal]);
+        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Decimal, Codec::Raw]);
         assert_eq!(f32::AUTO, f64::AUTO);
+    }
+
+    #[test]
+    fn raw_is_verbatim() {
+        let v = [1.5f64, f64::NAN, -0.0];
+        assert_eq!(payload_bits(&v, Config::new(Codec::Raw)), 3 * 64);
+        assert_eq!(payload_bits(&[7i32, -7], Config::new(Codec::Raw)), 2 * 32);
+        assert_eq!(bits_of(&decode::<f64>(&encode(&v, Config::new(Codec::Raw))).unwrap()), bits_of(&v));
+        // header code 7
+        assert_eq!(encode::<f64>(&[], Config::new(Codec::Raw))[2], 0x37);
     }
 
     #[test]
@@ -935,18 +977,18 @@ mod tests {
         let v: Vec<i64> = (0..300).map(|i| 1_700_000_000 + 10 * i + i % 3).collect();
         let per_block: usize = v
             .chunks(100)
-            .map(|b| 3 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .map(|b| 4 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
     }
 
     #[test]
     fn auto_rejects_unknown_block_selector() {
-        // f64 auto stream, one item, selector 7.
-        let bytes = [b'G', 1, 0x36, 1, 1, 0b1110_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        // f64 auto stream, one item, 4-bit selector 15.
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b1111_0000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
         // selector 6 would be Auto itself
-        let bytes = [b'G', 1, 0x36, 1, 1, 0b1100_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b0110_0000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
     }
 
@@ -987,6 +1029,13 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn auto_never_exceeds_raw(w in prop::collection::vec(any::<u64>(), 1..400), k in 1u32..120) {
+            let v: Vec<f64> = w.iter().map(|&x| f64::from_bits(x)).collect();
+            let blocks = v.len().div_ceil(k as usize);
+            prop_assert!(payload_bits(&v, cfg(Mode::Auto, k)) <= v.len() * 64 + blocks * 4);
+        }
+
         #[test]
         fn parallel_matches_sequential(v in prop::collection::vec(any::<i64>(), 0..300), k in 1u32..40, t in 1usize..6, m in 0usize..MODES.len()) {
             let c = cfg(MODES[m], k);
