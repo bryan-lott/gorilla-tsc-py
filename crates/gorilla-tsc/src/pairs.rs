@@ -67,12 +67,13 @@ pub fn estimate<T: Sample>(data: &[T], config: Config) -> Estimate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CheckpointInterval, Mode};
+    use crate::Codec;
+    use crate::CheckpointInterval;
 
     #[test]
     fn pairs_sort_stably_by_timestamp() {
         let pairs = [(5i64, 2.0f64), (1, 9.0), (5, 1.0)];
-        let (ts, vals) = encode_pairs(&pairs, Config::new(Mode::Dod), Config::new(Mode::Xor));
+        let (ts, vals) = encode_pairs(&pairs, Config::new(Codec::Dod), Config::new(Codec::Xor));
         assert_eq!(decode::<i64>(&ts), Ok(vec![1, 5, 5]));
         assert_eq!(decode::<f64>(&vals), Ok(vec![9.0, 2.0, 1.0]));
         assert_eq!(decode_pairs(&ts, &vals), Ok(vec![(1i64, 9.0f64), (5, 2.0), (5, 1.0)]));
@@ -81,22 +82,22 @@ mod tests {
     #[test]
     fn pairs_use_their_configs() {
         let pairs = [(1i32, 1.0f32), (2, 2.0)];
-        let ts_cfg = Config::new(Mode::Xor).with_interval(CheckpointInterval::new(1).unwrap());
-        let (ts, vals) = encode_pairs(&pairs, ts_cfg, Config::new(Mode::DodXor));
+        let ts_cfg = Config::new(Codec::Xor).with_interval(CheckpointInterval::new(1).unwrap());
+        let (ts, vals) = encode_pairs(&pairs, ts_cfg, Config::new(Codec::DodXor));
         assert_eq!(ts, encode(&[1i32, 2], ts_cfg));
-        assert_eq!(vals, encode(&[1.0f32, 2.0], Config::new(Mode::DodXor)));
+        assert_eq!(vals, encode(&[1.0f32, 2.0], Config::new(Codec::DodXor)));
     }
 
     #[test]
     fn pair_streams_of_different_lengths_are_corrupt() {
-        let ts = encode(&[1i64, 2], Config::new(Mode::Dod));
-        let vals = encode(&[1.0f64], Config::new(Mode::Xor));
+        let ts = encode(&[1i64, 2], Config::new(Codec::Dod));
+        let vals = encode(&[1.0f64], Config::new(Codec::Xor));
         assert_eq!(decode_pairs::<i64, f64>(&ts, &vals), Err(DecodeError::Corrupt("pair streams differ in length")));
     }
 
     #[test]
     fn pair_stream_errors_propagate() {
-        let vals = encode(&[1.0f64], Config::new(Mode::Xor));
+        let vals = encode(&[1.0f64], Config::new(Codec::Xor));
         assert_eq!(decode_pairs::<i64, f64>(b"x", &vals), Err(DecodeError::BadMagic));
         assert_eq!(decode_pairs::<f64, f64>(&vals, b"x"), Err(DecodeError::BadMagic));
     }
@@ -105,26 +106,26 @@ mod tests {
     fn estimate_counts_payload_only() {
         // 64 bits + '10'+7 for the first dod (1), then eight '0' bits = 81 bits = 11 bytes.
         let data: Vec<i64> = (1000..1010).collect();
-        let e = estimate(&data, Config::new(Mode::Dod));
+        let e = estimate(&data, Config::new(Codec::Dod));
         assert_eq!(e, Estimate { ratio: 80.0 / 11.0, compressed_size: 11, bits_per_item: 8.1 });
     }
 
     #[test]
     fn estimate_uses_item_width() {
-        let e = estimate(&[1.0f32, 1.0], Config::new(Mode::Xor));
+        let e = estimate(&[1.0f32, 1.0], Config::new(Codec::Xor));
         assert_eq!(e, Estimate { ratio: 8.0 / 5.0, compressed_size: 5, bits_per_item: 16.5 });
     }
 
     #[test]
     fn estimate_respects_config() {
-        let one = Config::new(Mode::Dod).with_interval(CheckpointInterval::new(1).unwrap());
+        let one = Config::new(Codec::Dod).with_interval(CheckpointInterval::new(1).unwrap());
         assert_eq!(estimate(&[5i64, 5], one).compressed_size, 16);
     }
 
     #[test]
     fn estimate_samples_a_prefix() {
         let data: Vec<f64> = (0..3000).map(f64::from).collect();
-        let cfg = Config::new(Mode::Xor);
+        let cfg = Config::new(Codec::Xor);
         let mut e = Encoder::new(cfg);
         for &x in &data[..ESTIMATE_SAMPLE] {
             e.push(x);
@@ -134,7 +135,7 @@ mod tests {
 
     #[test]
     fn estimate_of_nothing() {
-        let e = estimate::<f64>(&[], Config::new(Mode::Xor));
+        let e = estimate::<f64>(&[], Config::new(Codec::Xor));
         assert_eq!((e.ratio, e.compressed_size, e.bits_per_item), (f64::INFINITY, 0, 0.0));
     }
 }

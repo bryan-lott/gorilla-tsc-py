@@ -48,8 +48,8 @@ pub trait Sample: Copy + Send + Sync + fmt::Debug + sealed::Sealed + 'static {
     fn from_word(w: Self::Word) -> Self;
     /// Largest decimal exponent worth trying (0 for integers).
     const MAX_SCALE: i32;
-    /// Modes [`Mode::Auto`] tries for this type.
-    const AUTO: &'static [Mode];
+    /// Codecs [`Mode::Auto`] tries for this type.
+    const AUTO: &'static [Codec];
     /// `Some(n)` iff [`Sample::from_scaled`]`(n, k)` reproduces `self` bit for bit.
     /// For floats `n` is `self * 10^k` rounded; integers only scale at `k = 0`.
     fn to_scaled(self, k: i32) -> Option<i64>;
@@ -93,7 +93,7 @@ macro_rules! impl_sample {
             type Word = $w;
             const TYPE: SampleType = SampleType::$tag;
             const MAX_SCALE: i32 = $max;
-            const AUTO: &'static [Mode] = $auto;
+            const AUTO: &'static [Codec] = $auto;
             fn to_scaled(self, k: i32) -> Option<i64> {
                 let f: fn($t, i32) -> Option<i64> = $scale;
                 f(self, k)
@@ -115,10 +115,10 @@ macro_rules! impl_sample {
 }
 
 /// Decimal on integers is `Delta` plus a header, so it can never win.
-const INT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta];
+const INT_AUTO: &[Codec] = &[Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Delta];
 /// Delta on raw float bits essentially never beats `Decimal` (measured on the
 /// benchmark datasets: it won only constant runs, by the decimal header).
-const FLOAT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal];
+const FLOAT_AUTO: &[Codec] = &[Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Decimal];
 
 impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
     |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
@@ -136,9 +136,10 @@ fn unscale_f32(n: i64, k: i32) -> f32 {
     unscale_f64(n, k) as f32
 }
 
-/// How consecutive items are predicted. See [`crate::scheme`].
+/// A per-block compression method. Every block of a stream is coded by
+/// exactly one codec; [`Mode::Auto`] picks one per block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Mode {
+pub enum Codec {
     /// XOR with the previous item (Gorilla values).
     Xor,
     /// Delta-of-delta (Gorilla timestamps).
@@ -147,13 +148,26 @@ pub enum Mode {
     XorDod,
     /// XOR, then difference of consecutive XORs.
     DodXor,
-    /// First or second differences (chosen per block), Rice coded.
+    /// First or second differences (chosen per block), Rice or adaptively coded.
     Delta,
     /// Floats scaled to integers by a per-block power of ten, then delta coded.
     /// Values that do not scale exactly are stored verbatim. Integers: as `Delta`.
     Decimal,
-    /// Per block, whichever other mode is smallest (3-bit selector per block).
+}
+
+/// How a stream chooses codecs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Mode {
+    /// The same codec for every block.
+    Fixed(Codec),
+    /// Per block, whichever of [`Sample::AUTO`] is smallest (a selector per block).
     Auto,
+}
+
+impl From<Codec> for Mode {
+    fn from(c: Codec) -> Self {
+        Self::Fixed(c)
+    }
 }
 
 /// Items per independently decodable block. Never zero.
@@ -229,7 +243,7 @@ impl FromStr for SampleType {
     }
 }
 
-impl Mode {
+impl Codec {
     /// Name used in configuration strings.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -240,18 +254,71 @@ impl Mode {
             Self::DodXor => "dod_xor",
             Self::Delta => "delta",
             Self::Decimal => "decimal",
+        }
+    }
+
+    /// Every codec.
+    pub const ALL: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
+
+    /// Code in the header's mode field and in [`Mode::Auto`]'s block selector.
+    const fn code(self) -> u8 {
+        match self {
+            Self::Xor => 0,
+            Self::Dod => 1,
+            Self::XorDod => 2,
+            Self::DodXor => 3,
+            Self::Delta => 4,
+            Self::Decimal => 5,
+        }
+    }
+
+    fn from_code(code: u64) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| u64::from(c.code()) == code)
+    }
+}
+
+impl Mode {
+    /// Name used in configuration strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Fixed(c) => c.name(),
             Self::Auto => "auto",
         }
     }
-    const ALL: [Self; 7] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Auto];
-    /// Modes [`Mode::Auto`] chooses between, indexed by its selector.
-    const CONCRETE: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
+
+    /// Header code of [`Mode::Auto`]; never a codec's code.
+    const AUTO_CODE: u8 = 6;
+
+    const fn code(self) -> u8 {
+        match self {
+            Self::Fixed(c) => c.code(),
+            Self::Auto => Self::AUTO_CODE,
+        }
+    }
+
+    fn from_code(code: u8) -> Option<Self> {
+        if code == Self::AUTO_CODE { Some(Self::Auto) } else { Codec::from_code(u64::from(code)).map(Self::Fixed) }
+    }
+
+    /// Every mode: each codec, then [`Mode::Auto`].
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        Codec::ALL.into_iter().map(Self::Fixed).chain([Self::Auto]).collect()
+    }
+}
+
+impl FromStr for Codec {
+    type Err = ConfigError;
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_named(s, "codec", &Self::ALL, Self::name)
+    }
 }
 
 impl FromStr for Mode {
     type Err = ConfigError;
     fn from_str(s: &str) -> Result<Self, ConfigError> {
-        parse_named(s, "mode", &Self::ALL, Self::name)
+        parse_named(s, "mode", &Self::all(), Self::name)
     }
 }
 
@@ -293,8 +360,8 @@ impl Default for CheckpointInterval {
 impl Config {
     /// Settings with the default checkpoint interval.
     #[must_use]
-    pub const fn new(mode: Mode) -> Self {
-        Self { mode, checkpoint_interval: CheckpointInterval::DEFAULT }
+    pub fn new(mode: impl Into<Mode>) -> Self {
+        Self { mode: mode.into(), checkpoint_interval: CheckpointInterval::DEFAULT }
     }
 
     /// Replace the checkpoint interval.
@@ -304,28 +371,34 @@ impl Config {
     }
 }
 
-/// Encode one block with the codec for `mode`.
-fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
+/// Encode one block with `codec`.
+fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter) {
     type W<T> = <T as Sample>::Word;
+    match codec {
+        Codec::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
+        Codec::Dod => PerItem::<DodScheme<W<T>>>::default().encode_block(items, out),
+        Codec::XorDod => PerItem::<XorDodScheme<W<T>>>::default().encode_block(items, out),
+        Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
+        Codec::Delta => DeltaRice.encode_block(items, out),
+        Codec::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+    }
+}
+
+/// Encode one block as `mode` says.
+fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
     match mode {
-        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
-        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().encode_block(items, out),
-        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().encode_block(items, out),
-        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
-        Mode::Delta => DeltaRice.encode_block(items, out),
-        Mode::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Mode::Fixed(codec) => encode_codec::<T>(codec, items, out),
         Mode::Auto => {
-            let (mode, best) = T::AUTO
+            let (codec, best) = T::AUTO
                 .iter()
-                .map(|&m| {
+                .map(|&c| {
                     let mut w = BitWriter::new();
-                    encode_block::<T>(m, items, &mut w);
-                    (m, w)
+                    encode_codec::<T>(c, items, &mut w);
+                    (c, w)
                 })
                 .min_by_key(|(_, w)| w.bit_len())
-                .unwrap_or((Mode::Xor, BitWriter::new()));
-            let index = Mode::CONCRETE.iter().position(|&m| m == mode).unwrap_or(0);
-            out.write(index as u64, AUTO_SELECTOR_BITS);
+                .unwrap_or((Codec::Xor, BitWriter::new()));
+            out.write(u64::from(codec.code()), AUTO_SELECTOR_BITS);
             out.append(&best);
         }
     }
@@ -334,27 +407,36 @@ fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
 /// Width of [`Mode::Auto`]'s per-block mode selector.
 const AUTO_SELECTOR_BITS: u32 = 3;
 
-/// Decode one block of `n` items with the codec for `mode`.
+/// Decode one block of `n` items coded with `codec`.
+fn decode_codec<T: Sample>(
+    codec: Codec,
+    n: usize,
+    input: &mut BitReader<'_>,
+    out: &mut Vec<T::Word>,
+) -> Result<(), DecodeError> {
+    type W<T> = <T as Sample>::Word;
+    match codec {
+        Codec::Xor => PerItem::<XorScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::Dod => PerItem::<DodScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::XorDod => PerItem::<XorDodScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::Delta => DeltaRice.decode_block(n, input, out),
+        Codec::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
+    }
+}
+
+/// Decode one block of `n` items written as `mode` says.
 fn decode_block<T: Sample>(
     mode: Mode,
     n: usize,
     input: &mut BitReader<'_>,
     out: &mut Vec<T::Word>,
 ) -> Result<(), DecodeError> {
-    type W<T> = <T as Sample>::Word;
-    match mode {
-        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::Delta => DeltaRice.decode_block(n, input, out),
-        Mode::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
-        Mode::Auto => {
-            let selector = usize::try_from(input.read(AUTO_SELECTOR_BITS)?).unwrap_or(usize::MAX);
-            let mode = *Mode::CONCRETE.get(selector).ok_or(DecodeError::Corrupt("unknown block mode"))?;
-            decode_block::<T>(mode, n, input, out)
-        }
-    }
+    let codec = match mode {
+        Mode::Fixed(codec) => codec,
+        Mode::Auto => Codec::from_code(input.read(AUTO_SELECTOR_BITS)?).ok_or(DecodeError::Corrupt("unknown block mode"))?,
+    };
+    decode_codec::<T>(codec, n, input, out)
 }
 
 fn write_varint(out: &mut Vec<u8>, mut v: u64) {
@@ -394,8 +476,7 @@ fn take_byte(bytes: &mut &[u8]) -> Result<u8, DecodeError> {
 impl Header {
     fn descriptor(&self) -> u8 {
         let t = SampleType::ALL.iter().position(|&t| t == self.sample_type).unwrap_or_default();
-        let m = Mode::ALL.iter().position(|&m| m == self.config.mode).unwrap_or_default();
-        u8::try_from(t << 4 | m).unwrap_or_default()
+        u8::try_from(t << 4).unwrap_or_default() | self.config.mode.code()
     }
 
     fn write(&self, out: &mut Vec<u8>) {
@@ -524,7 +605,7 @@ pub fn read_header(mut bytes: &[u8]) -> Result<(Header, &[u8]), DecodeError> {
         return Err(DecodeError::InvalidHeader("reserved descriptor bits set"));
     }
     let sample_type = SampleType::ALL[usize::from(descriptor >> 4)];
-    let mode = *Mode::ALL.get(usize::from(descriptor & 0x0F)).ok_or(DecodeError::InvalidHeader("unknown mode"))?;
+    let mode = Mode::from_code(descriptor & 0x0F).ok_or(DecodeError::InvalidHeader("unknown mode"))?;
     let checkpoint_interval = u32::try_from(read_varint(&mut bytes)?)
         .ok()
         .and_then(CheckpointInterval::new)
@@ -593,9 +674,17 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 7] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal, Mode::Auto];
+    const MODES: [Mode; 7] = [
+        Mode::Fixed(Codec::Xor),
+        Mode::Fixed(Codec::Dod),
+        Mode::Fixed(Codec::XorDod),
+        Mode::Fixed(Codec::DodXor),
+        Mode::Fixed(Codec::Delta),
+        Mode::Fixed(Codec::Decimal),
+        Mode::Auto,
+    ];
 
-    fn cfg(mode: Mode, interval: u32) -> Config {
+    fn cfg(mode: impl Into<Mode>, interval: u32) -> Config {
         Config::new(mode).with_interval(CheckpointInterval::new(interval).unwrap())
     }
 
@@ -656,10 +745,10 @@ mod tests {
 
     #[test]
     fn header_layout() {
-        let bytes = encode::<i64>(&[], cfg(Mode::Dod, 300));
+        let bytes = encode::<i64>(&[], cfg(Codec::Dod, 300));
         // magic, version, I64 << 4 | Dod, varint(300) = AC 02, varint(0)
         assert_eq!(bytes, vec![b'G', 1, 0x11, 0xAC, 0x02, 0x00]);
-        let bytes = encode::<f32>(&[1.5], cfg(Mode::DodXor, 1));
+        let bytes = encode::<f32>(&[1.5], cfg(Codec::DodXor, 1));
         let mut expected = vec![b'G', 1, 0x23, 1, 1];
         expected.extend(1.5f32.to_bits().to_be_bytes());
         assert_eq!(bytes, expected);
@@ -667,9 +756,9 @@ mod tests {
 
     #[test]
     fn header_round_trips() {
-        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], cfg(Mode::XorDod, 7));
+        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], cfg(Codec::XorDod, 7));
         let (h, _) = read_header(&bytes).unwrap();
-        assert_eq!(h, Header { sample_type: SampleType::F64, config: cfg(Mode::XorDod, 7), count: 3 });
+        assert_eq!(h, Header { sample_type: SampleType::F64, config: cfg(Codec::XorDod, 7), count: 3 });
     }
 
     #[test]
@@ -728,23 +817,23 @@ mod tests {
 
     #[test]
     fn type_mismatch_is_reported() {
-        let bytes = encode::<i64>(&[1, 2], Config::new(Mode::Dod));
+        let bytes = encode::<i64>(&[1, 2], Config::new(Codec::Dod));
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::KindMismatch { expected: "f64", found: "int64" }));
     }
 
     #[test]
     fn truncated_payload_is_eof() {
-        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], Config::new(Mode::Xor));
+        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], Config::new(Codec::Xor));
         assert_eq!(decode::<f64>(&bytes[..bytes.len() - 1]), Err(DecodeError::UnexpectedEof));
     }
 
     #[test]
     fn trailing_data_is_rejected() {
-        let mut bytes = encode::<f64>(&[1.0], Config::new(Mode::Xor));
+        let mut bytes = encode::<f64>(&[1.0], Config::new(Codec::Xor));
         bytes.push(0);
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("trailing data after last item")));
         // Non-zero padding bits are trailing data too.
-        let mut bytes = encode::<i64>(&[5, 5], Config::new(Mode::Dod)); // 64 + 1 bits
+        let mut bytes = encode::<i64>(&[5, 5], Config::new(Codec::Dod)); // 64 + 1 bits
         *bytes.last_mut().unwrap() |= 1;
         assert_eq!(decode::<i64>(&bytes), Err(DecodeError::Corrupt("trailing data after last item")));
     }
@@ -757,15 +846,15 @@ mod tests {
 
     #[test]
     fn decode_any_dispatches_on_header() {
-        assert_eq!(decode_any(&encode(&[1i32, -2], Config::new(Mode::Dod))), Ok(Decoded::I32(vec![1, -2])));
-        assert_eq!(decode_any(&encode(&[1i64], Config::new(Mode::Dod))), Ok(Decoded::I64(vec![1])));
-        assert_eq!(decode_any(&encode(&[1.5f32], Config::new(Mode::Xor))), Ok(Decoded::F32(vec![1.5])));
-        assert_eq!(decode_any(&encode(&[2.5f64], Config::new(Mode::Xor))), Ok(Decoded::F64(vec![2.5])));
+        assert_eq!(decode_any(&encode(&[1i32, -2], Config::new(Codec::Dod))), Ok(Decoded::I32(vec![1, -2])));
+        assert_eq!(decode_any(&encode(&[1i64], Config::new(Codec::Dod))), Ok(Decoded::I64(vec![1])));
+        assert_eq!(decode_any(&encode(&[1.5f32], Config::new(Codec::Xor))), Ok(Decoded::F32(vec![1.5])));
+        assert_eq!(decode_any(&encode(&[2.5f64], Config::new(Codec::Xor))), Ok(Decoded::F64(vec![2.5])));
     }
 
     #[test]
     fn encoder_len_tracks_pushes() {
-        let mut e = Encoder::<i64>::new(Config::new(Mode::Dod));
+        let mut e = Encoder::<i64>::new(Config::new(Codec::Dod));
         assert!(e.is_empty());
         e.push(1);
         e.push(2);
@@ -776,26 +865,26 @@ mod tests {
     #[test]
     fn checkpoint_restarts_with_verbatim_item() {
         // interval 2: [verbatim, residual][verbatim, residual]
-        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Mode::Dod, 2)), 2 * (64 + 1));
-        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Mode::Dod, 4)), 64 + 3);
+        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Codec::Dod, 2)), 2 * (64 + 1));
+        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Codec::Dod, 4)), 64 + 3);
     }
 
     #[test]
     fn decimal_mode_beats_xor_on_decimal_data() {
         let v: Vec<f64> = (0..2000).map(|i| f64::from(150 + (i * 37) % 41) / 10.0).collect();
-        let xor = payload_bits(&v, Config::new(Mode::Xor));
-        let dec = payload_bits(&v, Config::new(Mode::Decimal));
+        let xor = payload_bits(&v, Config::new(Codec::Xor));
+        let dec = payload_bits(&v, Config::new(Codec::Decimal));
         assert!(dec * 3 < xor, "decimal {dec} vs xor {xor}");
-        assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+        assert_eq!(decode::<f64>(&encode(&v, Config::new(Codec::Decimal))), Ok(v));
     }
 
     #[test]
     fn decimal_mode_on_integers_matches_delta() {
         let v: Vec<i64> = (0..500).map(|i| 1000 + 3 * i + i % 4).collect();
-        let delta = payload_bits(&v, Config::new(Mode::Delta));
+        let delta = payload_bits(&v, Config::new(Codec::Delta));
         // per block of 100: 6-bit exponent + 7-bit (empty) exception count
-        assert_eq!(payload_bits(&v, Config::new(Mode::Decimal)), delta + 5 * (6 + 7));
-        assert_eq!(decode::<i64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+        assert_eq!(payload_bits(&v, Config::new(Codec::Decimal)), delta + 5 * (6 + 7));
+        assert_eq!(decode::<i64>(&encode(&v, Config::new(Codec::Decimal))), Ok(v));
     }
 
     #[test]
@@ -814,7 +903,7 @@ mod tests {
             .map(|b| 3 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
-        let best_single = Mode::CONCRETE.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
+        let best_single = Codec::ALL.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
         assert!(per_block < best_single);
         assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Auto))), Ok(v));
     }
@@ -834,10 +923,10 @@ mod tests {
     #[test]
     fn auto_candidates_by_sample_type() {
         // Decimal on integers is Delta plus a header, so it can never win.
-        assert_eq!(i64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta]);
+        assert_eq!(i64::AUTO, [Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Delta]);
         assert_eq!(i32::AUTO, i64::AUTO);
         // Raw-bit Delta essentially never beats Decimal on floats.
-        assert_eq!(f64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal]);
+        assert_eq!(f64::AUTO, [Codec::Xor, Codec::Dod, Codec::XorDod, Codec::DodXor, Codec::Decimal]);
         assert_eq!(f32::AUTO, f64::AUTO);
     }
 
