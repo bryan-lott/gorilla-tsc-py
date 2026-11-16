@@ -15,6 +15,7 @@ use crate::delta::DeltaRice;
 use crate::dict::Dictionary;
 use crate::decimal::{best_encoding, scale};
 use crate::split::{DecimalSplit, encode_scaled};
+use crate::profile::Profile;
 use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
@@ -207,6 +208,9 @@ pub enum Mode {
     Fixed(Codec),
     /// Per block, whichever of [`Sample::AUTO`] is smallest (a 4-bit selector per block).
     Auto,
+    /// A locked [`Profile`]: no per-block search. The stream records the
+    /// profile's codec, so it reads back as [`Mode::Fixed`].
+    Profile(Profile),
 }
 
 impl From<Codec> for Mode {
@@ -274,7 +278,7 @@ impl SampleType {
 }
 
 /// Parse `s` as one of `all` by name, or explain what was expected.
-fn parse_named<T: Copy>(s: &str, what: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, ConfigError> {
+pub(crate) fn parse_named<T: Copy>(s: &str, what: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, ConfigError> {
     all.iter().copied().find(|&t| name(t) == s).ok_or_else(|| {
         let valid: Vec<String> = all.iter().map(|&t| format!("'{}'", name(t))).collect();
         ConfigError(format!("{what} must be one of {} (got '{s}')", valid.join(", ")))
@@ -348,6 +352,7 @@ impl Mode {
         match self {
             Self::Fixed(c) => c.name(),
             Self::Auto => "auto",
+            Self::Profile(p) => p.codec().name(),
         }
     }
 
@@ -358,6 +363,7 @@ impl Mode {
         match self {
             Self::Fixed(c) => c.code(),
             Self::Auto => Self::AUTO_CODE,
+            Self::Profile(p) => p.codec().code(),
         }
     }
 
@@ -381,8 +387,9 @@ impl FromStr for Codec {
 
 impl FromStr for Mode {
     type Err = ConfigError;
+    /// A mode name, or a [`Profile`] string (anything containing `:`).
     fn from_str(s: &str) -> Result<Self, ConfigError> {
-        parse_named(s, "mode", &Self::all(), Self::name)
+        if s.contains(':') { s.parse().map(Self::Profile) } else { parse_named(s, "mode", &Self::all(), Self::name) }
     }
 }
 
@@ -436,7 +443,7 @@ impl Config {
 }
 
 /// Encode one block with `codec`.
-fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter) {
+pub(crate) fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter) {
     type W<T> = <T as Sample>::Word;
     match codec {
         Codec::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
@@ -460,6 +467,7 @@ fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter)
 fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
     match mode {
         Mode::Fixed(codec) => encode_codec::<T>(codec, items, out),
+        Mode::Profile(p) => p.encode_block::<T>(items, out),
         Mode::Auto => {
             // Decimal and DecimalSplit share the (costly) exponent search.
             let mut decimal: Option<(i32, BitWriter)> = None;
@@ -529,6 +537,7 @@ fn decode_block<T: Sample>(
 ) -> Result<(), DecodeError> {
     let codec = match mode {
         Mode::Fixed(codec) => codec,
+        Mode::Profile(p) => p.codec(),
         Mode::Auto => Codec::from_code(input.read(AUTO_SELECTOR_BITS)?).ok_or(DecodeError::Corrupt("unknown block mode"))?,
     };
     decode_codec::<T>(codec, n, input, out)

@@ -10,7 +10,7 @@ use std::hint::black_box;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use gorilla_tsc::{CheckpointInterval, Codec, Config, Encoder, Mode, Sample, decode, encode};
+use gorilla_tsc::{CheckpointInterval, Codec, Config, Encoder, Mode, Profile, Sample, decode, encode};
 
 const BLOCK: u32 = 1000;
 const MODES: [Mode; 7] = [
@@ -132,8 +132,11 @@ fn elf(dir: &Path, min: Duration) {
         "Wind-Speed", "Blockchain-tr", "City-lat", "City-lon", "Food-price", "POI-lat", "POI-lon", "SSD-bench",
         "electric_vehicle_charging",
     ];
-    println!("{:<26} {:>8} {:>8} {:>9} {:>9}", "Elf dataset", "gorilla", "auto", "enc MB/s", "dec MB/s");
-    let (mut sum_g, mut sum_a) = (0.0, 0.0);
+    println!(
+        "{:<26} {:>8} {:>8} {:>9} {:>9}   {:>8} {:>9}  learned from first 10k",
+        "Elf dataset", "gorilla", "auto", "enc MB/s", "dec MB/s", "profile", "enc MB/s"
+    );
+    let (mut sum_g, mut sum_a, mut sum_p) = (0.0, 0.0, 0.0);
     for name in SETS {
         let v: Vec<f64> = std::fs::read_to_string(dir.join("elf").join(format!("{name}.csv")))
             .unwrap_or_else(|e| panic!("{name}: {e} (run scripts/fetch-bench-data.sh)"))
@@ -142,11 +145,18 @@ fn elf(dir: &Path, min: Duration) {
             .collect();
         let g = measure(&v, Mode::Fixed(Codec::Xor), Duration::ZERO);
         let a = measure(&v, Mode::Auto, min);
+        let profile = Profile::learn(&v[..v.len().min(10_000)], CheckpointInterval::new(BLOCK).unwrap());
+        let p = measure(&v, Mode::Profile(profile), min);
         sum_g += g.bits_per_value;
         sum_a += a.bits_per_value;
-        println!("{name:<26} {:>8.2} {:>8.2} {:>9.1} {:>9.0}", g.bits_per_value, a.bits_per_value, a.enc_mbs, a.dec_mbs);
+        sum_p += p.bits_per_value;
+        println!(
+            "{name:<26} {:>8.2} {:>8.2} {:>9.1} {:>9.0}   {:>8.2} {:>9.1}  {profile}",
+            g.bits_per_value, a.bits_per_value, a.enc_mbs, a.dec_mbs, p.bits_per_value, p.enc_mbs
+        );
     }
-    println!("{:<26} {:>8.2} {:>8.2}", "mean", sum_g / SETS.len() as f64, sum_a / SETS.len() as f64);
+    let n = SETS.len() as f64;
+    println!("{:<26} {:>8.2} {:>8.2} {:>9} {:>9}   {:>8.2}", "mean", sum_g / n, sum_a / n, "", "", sum_p / n);
 }
 
 fn main() {

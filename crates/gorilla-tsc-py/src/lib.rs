@@ -510,6 +510,25 @@ fn encode<'py>(
     Ok(PyBytes::new(py, &bytes))
 }
 
+/// Learn a locked profile from a sample of `values`: a mode string for
+/// `encode` and the encoders that skips auto's per-block search.
+#[pyfunction]
+#[pyo3(signature = (values, precision = "f64", checkpoint_interval = 100))]
+fn learn_profile(values: &Bound<'_, PyAny>, precision: &str, checkpoint_interval: i64) -> Result<String, PyErr> {
+    let interval = parse_config("auto", checkpoint_interval)?.checkpoint_interval;
+    let precision: SampleType = precision.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
+    let profile = match precision {
+        SampleType::I32 => gt::Profile::learn(&ints::<i32>(values, TS_MSG)?, interval),
+        SampleType::I64 => gt::Profile::learn(&ints::<i64>(values, TS_MSG)?, interval),
+        SampleType::F32 => {
+            let v: Vec<f32> = floats(values, VAL_MSG)?.into_iter().map(to_f32).collect();
+            gt::Profile::learn(&v, interval)
+        }
+        SampleType::F64 => gt::Profile::learn(&floats(values, VAL_MSG)?, interval),
+    };
+    Ok(profile.to_string())
+}
+
 /// Decode any stream to a list of ints or floats, as its header says.
 #[pyfunction]
 fn decode<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> Result<Bound<'py, PyList>, PyErr> {
@@ -543,5 +562,6 @@ fn _native(m: &Bound<'_, PyModule>) -> Result<(), PyErr> {
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(inspect, m)?)?;
+    m.add_function(wrap_pyfunction!(learn_profile, m)?)?;
     Ok(())
 }

@@ -1,6 +1,6 @@
 //! Delta coding with Rice-coded residuals, the difference order chosen per block.
 //!
-//! Block layout: first item verbatim; then, if there is more than one item, a
+//! Block layout: first item zig-zagged with a length prefix; then, if there is more than one item, a
 //! 2-bit order (`0` = first differences, `1` = second differences, `2` = the
 //! values themselves), a coder bit (`0` = [`RiceBlock`], `1` =
 //! [`AdaptiveBlock`]) and the residuals in that coder. The cheapest order and
@@ -14,8 +14,8 @@ use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBl
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DeltaRice;
 
-/// Which differences are Rice coded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which differences are coded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Order {
     /// `x[i] - x[i-1]`.
     First,
@@ -26,10 +26,43 @@ pub enum Order {
 }
 
 /// Residual coders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Coder {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Coder {
+    /// [`RiceBlock`]: exact per-block Rice parameters.
     Rice,
+    /// [`AdaptiveBlock`]: adaptive binary range coding.
     Adaptive,
+}
+
+impl Coder {
+    /// Both coders, in tie-break preference.
+    pub const ALL: [Self; 2] = [Self::Rice, Self::Adaptive];
+
+    /// Name used in profile strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Rice => "rice",
+            Self::Adaptive => "adaptive",
+        }
+    }
+}
+
+/// A Delta block's choices, fixed up front instead of searched per block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeltaChoice {
+    /// Which differences are coded.
+    pub order: Order,
+    /// How the residuals are coded.
+    pub coder: Coder,
+}
+
+impl DeltaChoice {
+    /// Every combination, in tie-break preference.
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        Order::ALL.into_iter().flat_map(|order| Coder::ALL.map(|coder| Self { order, coder })).collect()
+    }
 }
 
 /// Width of the order field.
@@ -37,7 +70,17 @@ const ORDER_BITS: u32 = 2;
 
 impl Order {
     /// All orders, in tie-break preference.
-    const ALL: [Self; 3] = [Self::First, Self::Second, Self::Zero];
+    pub const ALL: [Self; 3] = [Self::First, Self::Second, Self::Zero];
+
+    /// Name used in profile strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::First => "first",
+            Self::Second => "second",
+            Self::Zero => "zero",
+        }
+    }
 
     const fn code(self) -> u64 {
         match self {
@@ -95,6 +138,29 @@ pub fn integrate<W: Word>(first: W, residuals: &[W], order: Order, out: &mut Vec
     }
 }
 
+/// The coder bit and residuals.
+fn write_residuals<W: Word>(r: &[W], coder: Coder, out: &mut BitWriter) {
+    out.write(u64::from(coder == Coder::Adaptive), 1);
+    match coder {
+        Coder::Rice => RiceBlock::encode(r, out),
+        Coder::Adaptive => AdaptiveBlock::encode(r, out),
+    }
+}
+
+impl DeltaRice {
+    /// Encode a block with `choice` instead of searching for the cheapest one.
+    /// The block format is unchanged, so it decodes like any Delta block.
+    pub fn encode_with<W: Word>(items: &[W], choice: DeltaChoice, out: &mut BitWriter) {
+        let Some((&first, rest)) = items.split_first() else { return };
+        write_prefixed::<W>(out, first.zigzag().to_u64());
+        if rest.is_empty() {
+            return;
+        }
+        out.write(choice.order.code(), ORDER_BITS);
+        write_residuals(&residuals(items, choice.order), choice.coder, out);
+    }
+}
+
 impl<W: Word> BlockCodec<W> for DeltaRice {
     fn encode_block(&self, items: &[W], out: &mut BitWriter) {
         let Some((&first, rest)) = items.split_first() else { return };
@@ -106,13 +172,9 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         let mut best: Option<(usize, Order, BitWriter)> = None;
         for order in Order::ALL {
             let r = residuals(items, order);
-            for coder in [Coder::Rice, Coder::Adaptive] {
+            for coder in Coder::ALL {
                 let mut w = BitWriter::new();
-                w.write(u64::from(coder == Coder::Adaptive), 1);
-                match coder {
-                    Coder::Rice => RiceBlock::encode(&r, &mut w),
-                    Coder::Adaptive => AdaptiveBlock::encode(&r, &mut w),
-                }
+                write_residuals(&r, coder, &mut w);
                 if best.as_ref().is_none_or(|b| w.bit_len() < b.0) {
                     best = Some((w.bit_len(), order, w));
                 }
@@ -179,6 +241,37 @@ mod tests {
     /// Cheapest coding of residuals, including the coder bit.
     fn best(r: &[u64]) -> u64 {
         1 + RiceBlock::cost(r, RiceBlock::choose(r)).min(adaptive_bits(r))
+    }
+
+    #[test]
+    fn encode_with_writes_a_normal_delta_block() {
+        let x: Vec<u64> = (0..300u64).map(|i| 1000 + i * i % 37).collect();
+        let mut best = (usize::MAX, BitWriter::new());
+        for choice in DeltaChoice::all() {
+            let mut w = BitWriter::new();
+            DeltaRice::encode_with(&x, choice, &mut w);
+            let len = w.bit_len();
+            let bytes = w.clone().finish();
+            let mut out: Vec<u64> = Vec::new();
+            DeltaRice.decode_block(x.len(), &mut BitReader::new(&bytes), &mut out).unwrap();
+            assert_eq!(out, x, "{choice:?}");
+            if len < best.0 {
+                best = (len, w);
+            }
+        }
+        // The search picks the cheapest of the same six.
+        assert_eq!(bits(&x), best.0);
+        assert_eq!(DeltaChoice::all().len(), 6);
+        assert_eq!(DeltaChoice::all()[0], DeltaChoice { order: Order::First, coder: Coder::Rice });
+        let mut w = BitWriter::new();
+        DeltaRice::encode_with(&[5u64], DeltaChoice::all()[3], &mut w);
+        assert_eq!(w.bit_len(), bits(&[5u64]));
+    }
+
+    #[test]
+    fn names() {
+        assert_eq!(Order::ALL.map(Order::name), ["first", "second", "zero"]);
+        assert_eq!(Coder::ALL.map(Coder::name), ["rice", "adaptive"]);
     }
 
     #[test]

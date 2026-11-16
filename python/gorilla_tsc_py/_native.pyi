@@ -3,7 +3,9 @@ from typing import Literal, TypedDict
 
 IntPrecision = Literal["int32", "int64"]
 FloatPrecision = Literal["f32", "f64"]
-Mode = Literal["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "bit_split", "auto"]
+# A codec name, "auto", or a profile string from learn_profile
+# ("delta:<order>:<coder>" / "decimal:<exponent>:<order>:<coder>").
+Mode = Literal["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "bit_split", "auto"] | str
 
 class DecodeError(ValueError): ...
 
@@ -93,3 +95,8 @@ def encode(
 ) -> bytes: ...
 def decode(data: bytes | TimestampsResult | ValuesResult) -> list[int] | list[float]: ...
 def inspect(data: bytes | TimestampsResult | ValuesResult) -> Header: ...
+def learn_profile(
+    values: Iterable[float] | Iterable[int],
+    precision: IntPrecision | FloatPrecision = "f64",
+    checkpoint_interval: int = 100,
+) -> str: ...

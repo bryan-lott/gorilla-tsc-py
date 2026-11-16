@@ -4,11 +4,13 @@ Bit-level format details are tested in the Rust crate; these check that the
 bindings forward configuration faithfully and map errors to Python exceptions.
 """
 
+import re
 import struct
 
 import pytest
 
 from gorilla_tsc_py import (
+    learn_profile,
     DecodeError,
     encode,
     PairsDecoder,
@@ -358,3 +360,48 @@ def test_decimal_and_auto_compress_decimal_data_far_better_than_xor():
     xor = len(encode(vals, mode="xor"))
     assert len(encode(vals, mode="decimal")) * 4 < xor
     assert len(encode(vals)) * 4 < xor  # auto is the default
+
+
+def test_learn_profile_for_floats_and_ints():
+    prices = [(10_000 + i % 37) / 100 for i in range(5000)]
+    profile = learn_profile(prices[:1000])
+    assert profile.startswith("decimal:2:")
+    data = encode(prices, mode=profile)
+    assert decode(data) == prices
+    # A profile writes ordinary decimal blocks.
+    assert inspect(data)["mode"] == "decimal"
+    assert len(data) <= len(encode(prices)) * 1.1
+
+    stamps = [1_700_000_000 + 60 * i for i in range(3000)]
+    profile = learn_profile(stamps, precision="int64")
+    assert profile.startswith("delta:second:")
+    assert decode(encode(stamps, precision="int64", mode=profile)) == stamps
+
+
+def test_profile_strings_work_as_modes_everywhere():
+    enc = ValuesEncoder(mode="decimal:1:first:adaptive")
+    values = [i / 10 for i in range(500)]
+    assert ValuesDecoder(enc.encode_all(values)).decode_all() == values
+    assert estimate_val_compression(values, mode="decimal:1:first:rice")["ratio"] > 4
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "msg"),
+    [
+        ({"mode": "delta:third:rice"}, "order must be one of 'first', 'second', 'zero' (got 'third')"),
+        ({"mode": "decimal:99:first:rice"}, "decimal exponent must be within -18..=18 (got 99)"),
+        ({"mode": "delta:first"}, "profile must look like"),
+    ],
+)
+def test_bad_profiles_rejected(kwargs, msg):
+    with pytest.raises(ValueError, match=re.escape(msg)):
+        encode([1.0, 2.0], **kwargs)
+
+
+def test_learn_profile_validates():
+    with pytest.raises(ValueError, match="precision must be one of"):
+        learn_profile([1.0], precision="f16")
+    with pytest.raises(ValueError, match="checkpoint interval must be between"):
+        learn_profile([1.0], checkpoint_interval=0)
+    assert learn_profile([]) == "decimal:0:first:rice"
+    assert learn_profile([], precision="int32") == "delta:first:rice"
