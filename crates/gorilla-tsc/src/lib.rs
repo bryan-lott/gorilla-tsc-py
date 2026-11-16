@@ -14,6 +14,7 @@
 
 mod adaptive;
 mod bits;
+mod bitsplit;
 mod block;
 mod coder;
 mod decimal;
@@ -30,6 +31,7 @@ mod word;
 
 pub use adaptive::AdaptiveBlock;
 pub use bits::{BitReader, BitWriter};
+pub use bitsplit::BitSplit;
 pub use block::{BlockCodec, PerItem};
 pub use decimal::{DecimalRice, Scaled};
 pub use dict::Dictionary;
