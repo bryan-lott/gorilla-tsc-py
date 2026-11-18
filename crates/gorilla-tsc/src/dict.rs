@@ -76,7 +76,7 @@ impl IndexCoder {
     }
 
     fn decode(self, n: usize, d: usize, input: &mut BitReader<'_>) -> Result<Vec<u64>, DecodeError> {
-        let mut seq = Vec::with_capacity(n);
+        let mut seq = Vec::with_capacity(input.capacity_hint(n));
         match self {
             Self::Fixed => {
                 let width = bit_len(d - 1);
@@ -103,7 +103,7 @@ impl IndexCoder {
 
 /// Significant bits of `n` (0 for zero).
 fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 /// Differences of consecutive indices (the first against 0), wrapping.
@@ -203,7 +203,7 @@ impl<T: Sample> BlockCodec<T::Word> for Dictionary<T> {
         if d > n {
             return Err(DecodeError::Corrupt("dictionary larger than block"));
         }
-        let mut dict = Vec::with_capacity(d);
+        let mut dict = Vec::with_capacity(input.capacity_hint(d));
         if input.read_bit()? {
             DeltaRice.decode_block(d, input, &mut dict)?;
         } else {
@@ -214,7 +214,8 @@ impl<T: Sample> BlockCodec<T::Word> for Dictionary<T> {
             return Ok(());
         }
         // Every 2-bit code is a coder, so this cannot fail on well-sized fields.
-        let coder = IndexCoder::from_code(input.read(INDEX_CODER_BITS)?).ok_or(DecodeError::Corrupt("unknown index coder"))?;
+        let coder =
+            IndexCoder::from_code(input.read(INDEX_CODER_BITS)?).ok_or(DecodeError::Corrupt("unknown index coder"))?;
         for i in coder.decode(n, d, input)? {
             let w = usize::try_from(i).ok().and_then(|i| dict.get(i));
             out.push(*w.ok_or(DecodeError::Corrupt("dictionary index out of range"))?);
@@ -404,10 +405,7 @@ mod tests {
         let v = [2.0f64, -1.0, 0.0, -0.0, f64::NEG_INFINITY, f64::NAN];
         let mut keys: Vec<i64> = v.iter().map(|x| x.order_key()).collect();
         keys.sort_unstable();
-        let order: Vec<u64> = keys
-            .iter()
-            .map(|k| v.iter().find(|x| x.order_key() == *k).unwrap().to_bits())
-            .collect();
+        let order: Vec<u64> = keys.iter().map(|k| v.iter().find(|x| x.order_key() == *k).unwrap().to_bits()).collect();
         let expected = [f64::NEG_INFINITY, -1.0, -0.0, 0.0, 2.0, f64::NAN].map(f64::to_bits);
         assert_eq!(order, expected);
         assert!((-5i32).order_key() < 3i32.order_key());

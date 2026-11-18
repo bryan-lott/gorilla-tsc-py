@@ -3,12 +3,14 @@ name = "gorilla-tsc"
 description = "Gorilla-style time series compression with stacked XOR/delta-of-delta modes"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
 
 [dev-dependencies]
+peak_alloc = "0.3"
 proptest = "1.12"
 
 [lints]

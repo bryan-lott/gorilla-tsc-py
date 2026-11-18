@@ -280,7 +280,8 @@ mod tests {
 
     #[test]
     fn wide_direct_fields() {
-        let events = [Event::Direct(u64::MAX, 64), Event::Direct(0, 64), Event::Direct(1 << 63, 64), Event::Direct(0, 0)];
+        let events =
+            [Event::Direct(u64::MAX, 64), Event::Direct(0, 64), Event::Direct(1 << 63, 64), Event::Direct(0, 0)];
         assert_eq!(decode(&encode(&events, 1), &events, 1), events);
     }
 

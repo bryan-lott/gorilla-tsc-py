@@ -47,7 +47,7 @@ const fn mask(r: u32) -> u64 {
 
 /// Significant bits of `n` (0 for zero).
 const fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 /// Distinct left parts of `sorted` (ascending words) at split `r`, most
@@ -151,14 +151,14 @@ impl<W: Word> BlockCodec<W> for BitSplit<W> {
         }
         let left_bits = W::BITS - r;
         let d = usize::try_from(input.read(D_BITS)?).unwrap_or(usize::MAX);
-        let mut dict = Vec::with_capacity(d);
+        let mut dict = Vec::with_capacity(input.capacity_hint(d));
         for _ in 0..d {
             dict.push(input.read(left_bits)?);
         }
         let depth = bit_len(d);
         let contexts = if d < CONTEXT_MAX { d + 1 } else { 1 };
         let mut probs = tree(depth, contexts);
-        let mut lefts = Vec::with_capacity(n);
+        let mut lefts = Vec::with_capacity(input.capacity_hint(n));
         {
             let mut rc = RangeDecoder::new(input)?;
             let mut prev = 0usize;
@@ -341,7 +341,8 @@ mod tests {
         BitSplit::<u64>::default().encode_block(&v, &mut w);
         let bytes = w.finish();
         for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
-            let r = BitSplit::<u64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
+            let r =
+                BitSplit::<u64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
             assert_eq!(r, Err(DecodeError::UnexpectedEof), "cut at {cut}");
         }
     }

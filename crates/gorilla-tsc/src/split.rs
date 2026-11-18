@@ -13,8 +13,8 @@
 
 use core::marker::PhantomData;
 
-use crate::decimal::{chosen_scaled, read_scaled_header, unscale, write_scaled_header};
 use crate::Scaled;
+use crate::decimal::{chosen_scaled, read_scaled_header, unscale, write_scaled_header};
 use crate::{BitReader, BitWriter, BlockCodec, DecodeError, DeltaRice, Sample, Word};
 
 /// Decimal-split block codec for samples of type `T`.
@@ -88,7 +88,7 @@ fn join(q: &[u64], r: &[u64], g: i64) -> Vec<u64> {
 
 /// A cheap size estimate: bit widths of zig-zagged first differences.
 fn proxy(v: &[u64]) -> u64 {
-    v.windows(2).map(|p| u64::from(p[1].wrapping_sub(p[0]).zigzag().bit_width())).sum()
+    v.windows(2).map(|p| u64::from(u64::BITS - p[1].wrapping_sub(p[0]).zigzag().leading_zeros())).sum()
 }
 
 /// [`proxy`] of the two halves of splitting `x` at `g`, without building them.
@@ -97,8 +97,8 @@ fn split_proxy(x: &[u64], g: i64) -> u64 {
     let mut total = 0;
     for &w in x.iter().skip(1) {
         let cur = split_one(w.cast_signed(), g);
-        total += u64::from(cur.0.wrapping_sub(prev.0).cast_unsigned().zigzag().bit_width());
-        total += u64::from(cur.1.wrapping_sub(prev.1).cast_unsigned().zigzag().bit_width());
+        total += u64::from(u64::BITS - cur.0.wrapping_sub(prev.0).cast_unsigned().zigzag().leading_zeros());
+        total += u64::from(u64::BITS - cur.1.wrapping_sub(prev.1).cast_unsigned().zigzag().leading_zeros());
         prev = cur;
     }
     total
@@ -148,13 +148,14 @@ pub(crate) fn encode_scaled<W: Word>(scaled: &Scaled<W>, out: &mut BitWriter) {
 
 fn decode<T: Sample>(n: usize, input: &mut BitReader<'_>, out: &mut Vec<T::Word>) -> Result<(), DecodeError> {
     let (k, exceptions) = read_scaled_header::<T>(n, input)?;
-    let split_at = Split::from_code(input.read(SPLIT_BITS)?).ok_or(DecodeError::Corrupt("split exponent out of range"))?;
-    let mut first: Vec<u64> = Vec::with_capacity(n);
+    let split_at =
+        Split::from_code(input.read(SPLIT_BITS)?).ok_or(DecodeError::Corrupt("split exponent out of range"))?;
+    let mut first: Vec<u64> = Vec::with_capacity(input.capacity_hint(n));
     DeltaRice.decode_block(n, input, &mut first)?;
     let ints = match split_at {
         Split::None => first,
         Split::At(j) => {
-            let mut r: Vec<u64> = Vec::with_capacity(n);
+            let mut r: Vec<u64> = Vec::with_capacity(input.capacity_hint(n));
             DeltaRice.decode_block(n, input, &mut r)?;
             join(&first, &r, Split::modulus(j))
         }
@@ -313,7 +314,11 @@ mod tests {
         DecimalSplit::<f64>::default().encode_block(&words(&v), &mut w);
         let bytes = w.finish();
         for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
-            let r = DecimalSplit::<f64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
+            let r = DecimalSplit::<f64>::default().decode_block(
+                v.len(),
+                &mut BitReader::new(&bytes[..cut]),
+                &mut Vec::new(),
+            );
             assert_eq!(r, Err(DecodeError::UnexpectedEof), "cut at {cut}");
         }
     }

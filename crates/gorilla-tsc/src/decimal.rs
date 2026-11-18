@@ -187,7 +187,7 @@ pub(crate) fn read_scaled_header<T: Sample>(
     if count > n {
         return Err(DecodeError::Corrupt("more exceptions than items"));
     }
-    let mut exceptions = Vec::with_capacity(count);
+    let mut exceptions = Vec::with_capacity(input.capacity_hint(count));
     for _ in 0..count {
         let pos = input.read(bit_len(n.saturating_sub(1)))? as usize;
         if pos >= n {
@@ -216,7 +216,7 @@ pub(crate) fn unscale<T: Sample>(ints: Vec<u64>, k: i32, exceptions: Exceptions<
 const K_BITS: u32 = 6;
 
 fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 impl<T: Sample> BlockCodec<T::Word> for DecimalRice<T> {
@@ -226,7 +226,7 @@ impl<T: Sample> BlockCodec<T::Word> for DecimalRice<T> {
 
     fn decode_block(&self, n: usize, input: &mut BitReader<'_>, out: &mut Vec<T::Word>) -> Result<(), DecodeError> {
         let (k, exceptions) = read_scaled_header::<T>(n, input)?;
-        let mut ints: Vec<u64> = Vec::with_capacity(n);
+        let mut ints: Vec<u64> = Vec::with_capacity(input.capacity_hint(n));
         DeltaRice.decode_block(n, input, &mut ints)?;
         unscale::<T>(ints, k, exceptions, out);
         Ok(())

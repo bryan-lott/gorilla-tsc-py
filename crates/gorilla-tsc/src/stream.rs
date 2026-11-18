@@ -11,12 +11,12 @@ use core::str::FromStr;
 use crate::bitsplit::BitSplit;
 use crate::block::{BlockCodec, PerItem};
 use crate::decimal::DecimalRice;
+use crate::decimal::{best_encoding, scale};
 use crate::delta::DeltaRice;
 use crate::dict::Dictionary;
-use crate::decimal::{best_encoding, scale};
-use crate::split::{DecimalSplit, encode_scaled};
 use crate::profile::Profile;
 use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
+use crate::split::{DecimalSplit, encode_scaled};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
 /// First byte of every stream.
@@ -67,8 +67,8 @@ pub trait Sample: Copy + Send + Sync + fmt::Debug + sealed::Sealed + 'static {
 
 /// Exact powers of ten representable in an `f64` (10^0 ..= 10^22).
 const POW10: [f64; 23] = [
-    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18,
-    1e19, 1e20, 1e21, 1e22,
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20,
+    1e21, 1e22,
 ];
 
 /// Integers of magnitude below 2^53 convert to `f64` exactly.
@@ -135,14 +135,36 @@ const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Dictionary, Codec:
 const FLOAT_AUTO: &[Codec] =
     &[Codec::Xor, Codec::Decimal, Codec::DecimalSplit, Codec::Dictionary, Codec::BitSplit, Codec::Raw];
 
-impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default(), i64::from);
-impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(v), |n, _| n, |v| v);
-impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32,
-    |v| i64::from(total_order(v.to_bits().cast_signed())));
-impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64,
-    |v| total_order(v.to_bits().cast_signed()));
+impl_sample!(
+    i32,
+    u32,
+    I32,
+    i32::cast_unsigned,
+    u32::cast_signed,
+    0,
+    INT_AUTO,
+    |v, k| (k == 0).then_some(i64::from(v)),
+    |n, _| i32::try_from(n).unwrap_or_default(),
+    i64::from
+);
+impl_sample!(
+    i64,
+    u64,
+    I64,
+    i64::cast_unsigned,
+    u64::cast_signed,
+    0,
+    INT_AUTO,
+    |v, k| (k == 0).then_some(v),
+    |n, _| n,
+    |v| v
+);
+impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32, |v| i64::from(
+    total_order(v.to_bits().cast_signed())
+));
+impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64, |v| total_order(
+    v.to_bits().cast_signed()
+));
 
 /// IEEE 754 total order as a signed integer order: negative floats have their
 /// magnitude bits flipped so they sort descending in magnitude (the trick
@@ -278,7 +300,12 @@ impl SampleType {
 }
 
 /// Parse `s` as one of `all` by name, or explain what was expected.
-pub(crate) fn parse_named<T: Copy>(s: &str, what: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, ConfigError> {
+pub(crate) fn parse_named<T: Copy>(
+    s: &str,
+    what: &str,
+    all: &[T],
+    name: fn(T) -> &'static str,
+) -> Result<T, ConfigError> {
     all.iter().copied().find(|&t| name(t) == s).ok_or_else(|| {
         let valid: Vec<String> = all.iter().map(|&t| format!("'{}'", name(t))).collect();
         ConfigError(format!("{what} must be one of {} (got '{s}')", valid.join(", ")))
@@ -416,9 +443,10 @@ impl CheckpointInterval {
 impl TryFrom<i64> for CheckpointInterval {
     type Error = ConfigError;
     fn try_from(n: i64) -> Result<Self, ConfigError> {
-        u32::try_from(n).ok().and_then(Self::new).ok_or_else(|| {
-            ConfigError(format!("checkpoint interval must be between 1 and {} (got {n})", u32::MAX))
-        })
+        u32::try_from(n)
+            .ok()
+            .and_then(Self::new)
+            .ok_or_else(|| ConfigError(format!("checkpoint interval must be between 1 and {} (got {n})", u32::MAX)))
     }
 }
 
@@ -538,7 +566,9 @@ fn decode_block<T: Sample>(
     let codec = match mode {
         Mode::Fixed(codec) => codec,
         Mode::Profile(p) => p.codec(),
-        Mode::Auto => Codec::from_code(input.read(AUTO_SELECTOR_BITS)?).ok_or(DecodeError::Corrupt("unknown block mode"))?,
+        Mode::Auto => {
+            Codec::from_code(input.read(AUTO_SELECTOR_BITS)?).ok_or(DecodeError::Corrupt("unknown block mode"))?
+        }
     };
     decode_codec::<T>(codec, n, input, out)
 }
@@ -814,9 +844,8 @@ pub fn decode<T: Sample>(bytes: &[u8]) -> Result<Vec<T>, DecodeError> {
     }
     let interval = u64::from(header.config.checkpoint_interval.get());
     let mut input = BitReader::new(payload);
-    // Every item costs at least one bit, so a lying count cannot force a huge allocation.
-    let cap = usize::try_from(header.count).unwrap_or(usize::MAX).min(payload.len() * 8);
-    let mut words = Vec::with_capacity(cap);
+    // The header's count is untrusted: reserve only what the payload can back.
+    let mut words = Vec::with_capacity(input.capacity_hint(usize::try_from(header.count).unwrap_or(usize::MAX)));
     let mut remaining = header.count;
     while remaining > 0 {
         let n = remaining.min(interval);
@@ -900,7 +929,22 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "bit_split", "auto"], MODES.map(Mode::name));
+        assert_eq!(
+            [
+                "xor",
+                "dod",
+                "xor_dod",
+                "dod_xor",
+                "delta",
+                "decimal",
+                "raw",
+                "dictionary",
+                "decimal_split",
+                "bit_split",
+                "auto"
+            ],
+            MODES.map(Mode::name)
+        );
         assert_eq!(Mode::all(), MODES);
     }
 
@@ -960,14 +1004,23 @@ mod tests {
         assert_eq!(read_header(b"X"), Err(DecodeError::BadMagic));
         assert_eq!(read_header(b"G"), Err(DecodeError::UnexpectedEof));
         assert_eq!(read_header(&[b'G', 2, 0, 1, 0]), Err(DecodeError::UnsupportedVersion(2)));
-        assert_eq!(read_header(&[b'G', 1, 0x40, 1, 0]), Err(DecodeError::InvalidHeader("reserved descriptor bits set")));
+        assert_eq!(
+            read_header(&[b'G', 1, 0x40, 1, 0]),
+            Err(DecodeError::InvalidHeader("reserved descriptor bits set"))
+        );
         assert_eq!(read_header(&[b'G', 1, 0x0F, 1, 0]), Err(DecodeError::InvalidHeader("unknown mode")));
-        assert_eq!(read_header(&[b'G', 1, 0, 0, 0]), Err(DecodeError::InvalidHeader("checkpoint interval out of range")));
+        assert_eq!(
+            read_header(&[b'G', 1, 0, 0, 0]),
+            Err(DecodeError::InvalidHeader("checkpoint interval out of range"))
+        );
         assert_eq!(read_header(&[b'G', 1, 0, 0x80]), Err(DecodeError::UnexpectedEof));
         let too_long = [b'G', 1, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01];
         assert_eq!(read_header(&too_long), Err(DecodeError::InvalidHeader("varint too long")));
         // interval > u32::MAX
-        assert_eq!(read_header(&[b'G', 1, 0, 0x80, 0x80, 0x80, 0x80, 0x10, 0]), Err(DecodeError::InvalidHeader("checkpoint interval out of range")));
+        assert_eq!(
+            read_header(&[b'G', 1, 0, 0x80, 0x80, 0x80, 0x80, 0x10, 0]),
+            Err(DecodeError::InvalidHeader("checkpoint interval out of range"))
+        );
     }
 
     #[test]
@@ -1108,10 +1161,8 @@ mod tests {
             s ^= s << 17;
             1.0 + f64::from(u32::try_from(s >> 40).unwrap()) / 16_777_216.0
         }));
-        let per_block: usize = v
-            .chunks(100)
-            .map(|b| 4 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
-            .sum();
+        let per_block: usize =
+            v.chunks(100).map(|b| 4 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap()).sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
         let best_single = Codec::ALL.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
         assert!(per_block < best_single);
@@ -1203,10 +1254,8 @@ mod tests {
     #[test]
     fn auto_on_integers_matches_best_integer_mode() {
         let v: Vec<i64> = (0..300).map(|i| 1_700_000_000 + 10 * i + i % 3).collect();
-        let per_block: usize = v
-            .chunks(100)
-            .map(|b| 4 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
-            .sum();
+        let per_block: usize =
+            v.chunks(100).map(|b| 4 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap()).sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
     }
 

@@ -49,7 +49,7 @@ const fn len_bits<W: Word>() -> u32 {
 
 /// Significant bits of `v` (0 for zero).
 const fn bit_length(v: u64) -> u32 {
-    v.bit_width()
+    u64::BITS - v.leading_zeros()
 }
 
 /// Width of the `k` field.
@@ -152,7 +152,7 @@ fn costs_for_all_k<W: Word>(zs: &[u64]) -> Vec<u64> {
     let mut count = vec![0u64; bits + 1];
     let mut quotients = vec![0u64; bits];
     for &z in zs {
-        let len = z.bit_width() as usize;
+        let len = (u64::BITS - z.leading_zeros()) as usize;
         count[len] += 1;
         let low = len.saturating_sub(e);
         for (k, q) in quotients[low..len].iter_mut().enumerate() {
@@ -403,8 +403,8 @@ mod tests {
             let mut w = BitWriter::new();
             w.write(0, 1); // zig-zag
             w.write(1, 1); // scaled
-            w.write(u64::from(g.bit_width()), 7);
-            w.write(g, g.bit_width());
+            w.write(u64::from(u64::BITS - g.leading_zeros()), 7);
+            w.write(g, u64::BITS - g.leading_zeros());
             w.write(0, 64);
             let bytes = w.finish();
             let r = RiceBlock::decode::<u64>(1, &mut BitReader::new(&bytes), &mut Vec::new());

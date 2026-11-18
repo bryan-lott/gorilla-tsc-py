@@ -51,7 +51,7 @@ fn class(mag: u64) -> usize {
 /// `|s|` and its bit length, for a signed residual.
 fn magnitude(s: i128) -> (u64, u32) {
     let mag = u64::try_from(s.unsigned_abs()).unwrap_or(u64::MAX);
-    (mag, mag.bit_width())
+    (mag, u64::BITS - mag.leading_zeros())
 }
 
 impl AdaptiveBlock {
@@ -66,7 +66,8 @@ impl AdaptiveBlock {
         let mut coder = RangeEncoder::new(out);
         let mut ctx_class = 0;
         for &residual in residuals {
-            let value = if scale == 1 { residual.to_signed_i128() } else { residual.to_signed_i128() / i128::from(scale) };
+            let value =
+                if scale == 1 { residual.to_signed_i128() } else { residual.to_signed_i128() / i128::from(scale) };
             let (mag, len) = magnitude(value);
             coder.bit(&mut model.zero[ctx_class], mag != 0);
             if mag != 0 {
@@ -175,7 +176,8 @@ mod tests {
                 s ^= s << 13;
                 s ^= s >> 7;
                 s ^= s << 17;
-                let mag = i64::from((s >> 40).trailing_zeros().min(30)) * i64::from(spread) + i64::try_from(s % u64::from(spread)).unwrap();
+                let mag = i64::from((s >> 40).trailing_zeros().min(30)) * i64::from(spread)
+                    + i64::try_from(s % u64::from(spread)).unwrap();
                 if s & 1 == 0 { mag } else { -mag }
             })
             .collect()
@@ -246,7 +248,8 @@ mod tests {
         let mut w = BitWriter::new();
         AdaptiveBlock::encode(&r, &mut w);
         let bytes = w.finish();
-        let res = AdaptiveBlock::decode::<u64>(r.len(), &mut BitReader::new(&bytes[..bytes.len() / 2]), &mut Vec::new());
+        let res =
+            AdaptiveBlock::decode::<u64>(r.len(), &mut BitReader::new(&bytes[..bytes.len() / 2]), &mut Vec::new());
         assert_eq!(res, Err(DecodeError::UnexpectedEof));
     }
 

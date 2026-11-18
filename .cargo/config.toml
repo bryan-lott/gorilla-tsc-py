@@ -1,0 +1,5 @@
+# PyO3 with `extension-module` leaves Python's symbols for the interpreter to
+# provide at import time. macOS's linker rejects that for test executables
+# unless told to defer them (PyO3's documented setting for cargo test).
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

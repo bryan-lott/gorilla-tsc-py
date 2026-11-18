@@ -196,7 +196,7 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
             return Ok(());
         }
         let order = Order::from_code(input.read(ORDER_BITS)?).ok_or(DecodeError::Corrupt("unknown delta order"))?;
-        let mut r = Vec::with_capacity(n - 1);
+        let mut r = Vec::with_capacity(input.capacity_hint(n - 1));
         if input.read_bit()? {
             AdaptiveBlock::decode(n - 1, input, &mut r)?;
         } else {
@@ -235,7 +235,7 @@ mod tests {
 
     /// Cost of a block's first value: zig-zagged, 7-bit (u64) length prefix.
     fn first(v: u64) -> u64 {
-        7 + u64::from(v.zigzag().bit_width())
+        7 + u64::from(u64::BITS - v.zigzag().leading_zeros())
     }
 
     /// Cheapest coding of residuals, including the coder bit.
