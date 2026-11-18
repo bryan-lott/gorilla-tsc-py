@@ -144,7 +144,9 @@ impl fmt::Display for Profile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Delta(d) => write!(f, "delta:{}:{}", d.order.name(), d.coder.name()),
-            Self::Decimal { exponent, delta: d } => write!(f, "decimal:{exponent}:{}:{}", d.order.name(), d.coder.name()),
+            Self::Decimal { exponent, delta: d } => {
+                write!(f, "decimal:{exponent}:{}:{}", d.order.name(), d.coder.name())
+            }
             Self::Fixed(codec) => f.write_str(codec.name()),
         }
     }
@@ -212,7 +214,10 @@ mod tests {
             (Profile::Delta(FIRST_RICE), "delta:first:rice"),
             (Profile::Delta(SECOND_ADAPTIVE), "delta:second:adaptive"),
             (Profile::Decimal { exponent: 2, delta: FIRST_RICE }, "decimal:2:first:rice"),
-            (Profile::Decimal { exponent: -3, delta: DeltaChoice { order: Order::Zero, coder: Coder::Adaptive } }, "decimal:-3:zero:adaptive"),
+            (
+                Profile::Decimal { exponent: -3, delta: DeltaChoice { order: Order::Zero, coder: Coder::Adaptive } },
+                "decimal:-3:zero:adaptive",
+            ),
         ];
         for (p, s) in cases {
             assert_eq!(p.to_string(), s);
@@ -224,7 +229,8 @@ mod tests {
     fn bad_strings() {
         let err = |s: &str| s.parse::<Profile>().unwrap_err().0;
         let usage = "profile must look like 'delta:<order>:<coder>' or 'decimal:<exponent>:<order>:<coder>'";
-        for s in ["delta:first", "delta:first:rice:x", "decimal:2:first", "rle:first:rice", "decimal:x:first:rice", ":"] {
+        for s in ["delta:first", "delta:first:rice:x", "decimal:2:first", "rle:first:rice", "decimal:x:first:rice", ":"]
+        {
             assert!(err(s).starts_with(usage), "{s:?}: {}", err(s));
         }
         assert_eq!(err("delta:third:rice"), "order must be one of 'first', 'second', 'zero' (got 'third')");
@@ -280,7 +286,15 @@ mod tests {
     fn guard_threshold_is_one_percent() {
         // 1000 two-decimal values with exactly 10 (then 11) unscalable at exponent 2.
         let make = |bad: usize| -> Vec<f64> {
-            (0..1000).map(|i| if i < bad { f64::from(u32::try_from(i).unwrap()) + 0.123_456_789 } else { f64::from(u32::try_from(i % 50).unwrap()) / 100.0 }).collect()
+            (0..1000)
+                .map(|i| {
+                    if i < bad {
+                        f64::from(u32::try_from(i).unwrap()) + 0.123_456_789
+                    } else {
+                        f64::from(u32::try_from(i % 50).unwrap()) / 100.0
+                    }
+                })
+                .collect()
         };
         // A poor recipe, so a searched block is visibly different from a locked one.
         let zero_rice = DeltaChoice { order: Order::Zero, coder: Coder::Rice };
@@ -370,7 +384,10 @@ mod tests {
         assert_eq!(p.codec(), Codec::BitSplit);
         assert_eq!(p.to_string(), "bit_split");
         assert_eq!("bit_split".parse::<Profile>(), Ok(p));
-        assert_eq!("auto".parse::<Profile>().unwrap_err().0, "profile codec must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'bit_split' (got 'auto')");
+        assert_eq!(
+            "auto".parse::<Profile>().unwrap_err().0,
+            "profile codec must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'bit_split' (got 'auto')"
+        );
         let v: Vec<f64> = (0..300).map(|i| f64::from(i).sqrt()).collect();
         let bytes = encode(&v, Config::new(Mode::Profile(p)));
         assert_eq!(bytes, encode(&v, Config::new(Mode::Fixed(Codec::BitSplit))));

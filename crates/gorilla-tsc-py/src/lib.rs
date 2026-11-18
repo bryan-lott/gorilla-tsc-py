@@ -31,8 +31,7 @@ fn parse_threads(threads: i64) -> Result<gt::Threads, PyErr> {
 
 fn parse_config(mode: &str, checkpoint_interval: i64) -> Result<Config, PyErr> {
     let mode: Mode = mode.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
-    let interval =
-        CheckpointInterval::try_from(checkpoint_interval).map_err(|e| PyValueError::new_err(e.0))?;
+    let interval = CheckpointInterval::try_from(checkpoint_interval).map_err(|e| PyValueError::new_err(e.0))?;
     Ok(Config::new(mode).with_interval(interval))
 }
 
@@ -55,9 +54,7 @@ impl IntType {
         match s.parse() {
             Ok(SampleType::I32) => Ok(Self::I32),
             Ok(SampleType::I64) => Ok(Self::I64),
-            _ => Err(PyValueError::new_err(format!(
-                "timestamp precision must be 'int32' or 'int64' (got '{s}')"
-            ))),
+            _ => Err(PyValueError::new_err(format!("timestamp precision must be 'int32' or 'int64' (got '{s}')"))),
         }
     }
     fn name(self) -> &'static str {
@@ -190,7 +187,11 @@ impl TimestampsEncoder {
     }
 
     /// Append all `timestamps`, then finish the stream.
-    fn encode_all<'py>(&mut self, py: Python<'py>, timestamps: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
+    fn encode_all<'py>(
+        &mut self,
+        py: Python<'py>,
+        timestamps: &Bound<'py, PyAny>,
+    ) -> Result<Bound<'py, PyDict>, PyErr> {
         match self.inner.as_mut().ok_or_else(finished)? {
             TsEncoder::I32(e) => {
                 let v = ints::<i32>(timestamps, TS_MSG)?;

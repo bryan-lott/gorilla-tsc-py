@@ -79,9 +79,9 @@ pub fn estimate<T: Sample>(data: &[T], config: Config) -> Estimate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encode;
-    use crate::Codec;
     use crate::CheckpointInterval;
+    use crate::Codec;
+    use crate::encode;
 
     #[test]
     fn pairs_sort_stably_by_timestamp() {

@@ -13,8 +13,8 @@
 
 use core::marker::PhantomData;
 
-use crate::decimal::{chosen_scaled, read_scaled_header, unscale, write_scaled_header};
 use crate::Scaled;
+use crate::decimal::{chosen_scaled, read_scaled_header, unscale, write_scaled_header};
 use crate::{BitReader, BitWriter, BlockCodec, DecodeError, DeltaRice, Sample, Word};
 
 /// Decimal-split block codec for samples of type `T`.
@@ -148,7 +148,8 @@ pub(crate) fn encode_scaled<W: Word>(scaled: &Scaled<W>, out: &mut BitWriter) {
 
 fn decode<T: Sample>(n: usize, input: &mut BitReader<'_>, out: &mut Vec<T::Word>) -> Result<(), DecodeError> {
     let (k, exceptions) = read_scaled_header::<T>(n, input)?;
-    let split_at = Split::from_code(input.read(SPLIT_BITS)?).ok_or(DecodeError::Corrupt("split exponent out of range"))?;
+    let split_at =
+        Split::from_code(input.read(SPLIT_BITS)?).ok_or(DecodeError::Corrupt("split exponent out of range"))?;
     let mut first: Vec<u64> = Vec::with_capacity(n);
     DeltaRice.decode_block(n, input, &mut first)?;
     let ints = match split_at {
@@ -313,7 +314,11 @@ mod tests {
         DecimalSplit::<f64>::default().encode_block(&words(&v), &mut w);
         let bytes = w.finish();
         for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
-            let r = DecimalSplit::<f64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
+            let r = DecimalSplit::<f64>::default().decode_block(
+                v.len(),
+                &mut BitReader::new(&bytes[..cut]),
+                &mut Vec::new(),
+            );
             assert_eq!(r, Err(DecodeError::UnexpectedEof), "cut at {cut}");
         }
     }

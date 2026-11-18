@@ -118,9 +118,8 @@ impl<W: Word> ResidualCoder<W> for XorCoder {
         let window = if input.read_bit()? {
             let leading = input.read(Self::lz_bits::<W>())? as u32;
             let len = input.read(Self::len_bits::<W>())? as u32 + 1;
-            let trailing = W::BITS
-                .checked_sub(leading + len)
-                .ok_or(DecodeError::Corrupt("XOR window wider than the word"))?;
+            let trailing =
+                W::BITS.checked_sub(leading + len).ok_or(DecodeError::Corrupt("XOR window wider than the word"))?;
             let w = Window { leading, trailing };
             self.window = Some(w);
             w
@@ -166,9 +165,18 @@ mod tests {
     fn bucket_costs_u64() {
         let cases: [(i64, usize); 14] = [
             (0, 1),
-            (-1, 9), (1, 9), (-64, 9), (63, 9),
-            (-65, 12), (64, 12), (-256, 12), (255, 12),
-            (-257, 16), (256, 16), (-2048, 16), (2047, 16),
+            (-1, 9),
+            (1, 9),
+            (-64, 9),
+            (63, 9),
+            (-65, 12),
+            (64, 12),
+            (-256, 12),
+            (255, 12),
+            (-257, 16),
+            (256, 16),
+            (-2048, 16),
+            (2047, 16),
             (2048, 4 + 64),
         ];
         for (n, bits) in cases {

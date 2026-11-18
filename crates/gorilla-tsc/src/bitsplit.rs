@@ -341,7 +341,8 @@ mod tests {
         BitSplit::<u64>::default().encode_block(&v, &mut w);
         let bytes = w.finish();
         for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
-            let r = BitSplit::<u64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
+            let r =
+                BitSplit::<u64>::default().decode_block(v.len(), &mut BitReader::new(&bytes[..cut]), &mut Vec::new());
             assert_eq!(r, Err(DecodeError::UnexpectedEof), "cut at {cut}");
         }
     }

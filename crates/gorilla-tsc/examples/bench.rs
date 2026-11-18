@@ -127,9 +127,27 @@ fn report<T: Sample>(name: &str, data: &[T], reference: &str, min: Duration) {
 #[allow(clippy::cast_precision_loss)]
 fn elf(dir: &Path, min: Duration) {
     const SETS: [&str; 22] = [
-        "Air-pressure", "Air-sensor", "Basel-temp", "Basel-wind", "Bird-migration", "Bitcoin-price",
-        "City-temp", "Dew-point-temp", "IR-bio-temp", "PM10-dust", "Stocks-DE", "Stocks-UK", "Stocks-USA",
-        "Wind-Speed", "Blockchain-tr", "City-lat", "City-lon", "Food-price", "POI-lat", "POI-lon", "SSD-bench",
+        "Air-pressure",
+        "Air-sensor",
+        "Basel-temp",
+        "Basel-wind",
+        "Bird-migration",
+        "Bitcoin-price",
+        "City-temp",
+        "Dew-point-temp",
+        "IR-bio-temp",
+        "PM10-dust",
+        "Stocks-DE",
+        "Stocks-UK",
+        "Stocks-USA",
+        "Wind-Speed",
+        "Blockchain-tr",
+        "City-lat",
+        "City-lon",
+        "Food-price",
+        "POI-lat",
+        "POI-lon",
+        "SSD-bench",
         "electric_vehicle_charging",
     ];
     println!(
@@ -173,8 +191,18 @@ fn main() {
         v
     };
 
-    report("city_temperature", &take(column(&dir.join("city_temperature.csv"), 2)), "  [paper: Gorilla 58.72, Chimp128 22.92]", min);
-    report("Stocks-Germany", &take(column(&dir.join("Stocks-Germany-sample.txt"), 2)), "  [paper: Gorilla 46.90, Chimp128 13.20]", min);
+    report(
+        "city_temperature",
+        &take(column(&dir.join("city_temperature.csv"), 2)),
+        "  [paper: Gorilla 58.72, Chimp128 22.92]",
+        min,
+    );
+    report(
+        "Stocks-Germany",
+        &take(column(&dir.join("Stocks-Germany-sample.txt"), 2)),
+        "  [paper: Gorilla 46.90, Chimp128 13.20]",
+        min,
+    );
     report("SSD_HDD", &column(&dir.join("SSD_HDD_benchmarks.csv"), 2), "  [paper: Gorilla 40.25, Chimp128 17.00]", min);
 
     let mut ts = stock_timestamps(&dir.join("Stocks-Germany-sample.txt"));
