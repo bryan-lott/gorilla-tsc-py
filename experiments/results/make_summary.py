@@ -1,4 +1,4 @@
-"""Build summary.html from q1.json, q1-timing.json, q2.json and q3.json.
+"""Build summary.html from q1.json, q1-timing.json and q2.json.
 
     python3 experiments/results/make_summary.py
 
@@ -14,7 +14,6 @@ HERE = Path(__file__).parent
 q1 = json.loads((HERE / "q1.json").read_text())
 q1t = {d["name"]: d["timing"] for d in json.loads((HERE / "q1-timing.json").read_text())}
 q2 = json.loads((HERE / "q2.json").read_text())
-q3 = json.loads((HERE / "q3.json").read_text())
 
 esc = html.escape
 
@@ -176,69 +175,11 @@ for dd in q2["datasets"]:
     cells = [f'<b>{v:.2f}</b>' if v == best else f"{v:.2f}" for v in (vals.get(m) for m in per_ds_methods)]
     q2_ds_rows.append([esc(n), esc(dd["kind"])] + cells)
 
-# ------------------------------------------------------------------ Q3
-
-files = {f["name"]: f for f in q3["files"]}
-cb = q3["compressed_bytes"]
-baselines = [m["name"] for m in q3["methods"] if m["kind"] == "baseline"]
-ours = [m["name"] for m in q3["methods"] if m["kind"] == "ours" and m["name"] != "ours-auto"]
-cats = {}
-for name, f in files.items():
-    c = cats.setdefault(f["category"], {"n": 0, "raw": 0, "xz": 0, "best_base": 0, "best_ours": 0, "cm": 0})
-    c["n"] += 1
-    c["raw"] += f["bytes"]
-    c["xz"] += cb["xz -9e"][name]
-    c["best_base"] += min(cb[m][name] for m in baselines if name in cb[m])
-    c["best_ours"] += min(cb[m][name] for m in ours if name in cb[m])
-    c["cm"] += cb["ours-cm"].get(name, 0)
-q3_cat_rows = [[
-    esc(k), str(c["n"]), f'{c["raw"] / 1e6:.1f} MB', f'{c["xz"] / 1e6:.2f} MB', f'{c["best_base"] / 1e6:.2f} MB',
-    f'{c["best_ours"] / 1e6:.2f} MB', fmt_pct(pct(c["best_ours"], c["best_base"])),
-] for k, c in cats.items()]
-
-highlight = [
-    ("Stocks-Germany-sample.txt", "ours-columnar+xz", "numeric CSV, columns through gorilla auto"),
-    ("city_temperature.csv", "ours-columnar+cm", "numeric CSV"),
-    ("elf/City-lat.csv", "ours-columnar+xz", "unordered numbers: columnar adds nothing"),
-    ("system journal (125k lines)", "ours-log+xz", "log templates + gorilla timestamps"),
-    ("package-manager log", "ours-log+xz", "too many templates: no gain"),
-    ("stock ticks, 20-byte records (i64 ts, f64 price, i32 vol)", "ours-struct", "stride detection + typed fields"),
-    ("SQLite DB (built from bench data)", "ours-cm-stride", "context mixing with record stride"),
-    ("ELF x86-64 executable", "ours-cm-bcj", "x86 BCJ filter + context mixing"),
-    ("enwik8 (first 10 MB)", "ours-cm", "prose: context mixing"),
-    ("alice29.txt", "ours-cm", "prose"),
-    ("music, 60 s 16-bit stereo PCM (decoded from MP3)", "ours-lpc", "LPC + library Rice/adaptive coders vs FLAC"),
-]
-q3_rows = []
-for name, m, note in highlight:
-    if name not in files:
-        continue
-    base = {b: cb[b][name] for b in baselines if name in cb[b]}
-    bb = min(base, key=base.get)
-    o = cb[m][name]
-    q3_rows.append([esc(name), f'{files[name]["bytes"]:,}', f'{cb["xz -9e"][name]:,}',
-                    f"{base[bb]:,} <small>{esc(bb)}</small>", f"{o:,} <small>{esc(m)}</small>",
-                    fmt_pct(pct(o, base[bb])), esc(note)])
-
-
-def q3speed(method, fname):
-    e = q3.get("enc_mbs", {}).get(method, {}).get(fname)
-    d = q3.get("dec_mbs", {}).get(method, {}).get(fname)
-    return f"{e:.2f} / {d:.1f}" if e is not None and d is not None else "–"
-
-
-sp_files = ["enwik8 (first 10 MB)", "Stocks-Germany-sample.txt", "system journal (125k lines)",
-            "stock ticks, 20-byte records (i64 ts, f64 price, i32 vol)"]
-sp_methods = ["xz -9e", "zstd -19", "ours-cm", "ours-columnar+xz", "ours-log+xz", "ours-struct"]
-q3_speed_rows = [[f"<code>{esc(m)}</code>"] + [q3speed(m, f) for f in sp_files] for m in sp_methods]
-
 # ------------------------------------------------------------------ page
 
 n_q1 = len(q1)
 n_q2_methods = len(q2["methods"])
 n_q2_verified = sum(m["lossless_verified"] for m in q2["methods"])
-n_q3_methods = len(q3["methods"])
-n_q3_verified = sum(m["lossless_verified"] for m in q3["methods"])
 med_recipe = st.median(recipe_deltas)
 allp_ts = pct(mean_kind("auto+all", "time series"), a_ts)
 allp_nts = pct(mean_kind("auto+all", "non-time-series"), a_nts)
@@ -274,9 +215,9 @@ page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>gorilla-tsc overnight research</title><style>{CSS}</style></head><body><main>
 <h1>gorilla-tsc: overnight research results</h1>
-<p class="sub">Three questions about the compression library. Every number below was measured on this machine and read
+<p class="sub">Two questions about the compression library. Every number below was measured on this machine and read
 from the JSON results files. Every codec reported was decoded and compared bit-for-bit
-(Q2: {n_q2_verified}/{n_q2_methods} methods verified, Q3: {n_q3_verified}/{n_q3_methods}, Q1: all profiles).</p>
+(Q2: {n_q2_verified}/{n_q2_methods} methods verified, Q1: all profiles).</p>
 
 <div class="cards">
 <div class="card"><h3>1. One codec for everything?</h3>
@@ -290,11 +231,6 @@ The cost is in the parameter search <em>inside</em> decimal. Locking the paramet
 <p>Five new per-block candidates (dictionary, repeat cache, decimal split, adaptive bit split, LPC) together
 shrink output by about 14% while keeping 1000-value random access, and beat xz and pcodec on time series.
 The biggest single win is the decimal split on float32-derived data (Basel-temp {bpv2['auto']['Basel-temp']:.1f} → {bpv2['decimal-split']['Basel-temp']:.1f} bits/value).</p></div>
-<div class="card"><h3>3. Text and binary</h3>
-<div class="big">Yes, where there are numbers inside</div>
-<p>Columnar CSV through gorilla <code>auto</code> is about half the size of xz. Log templates are 29% smaller than xz.
-Typed binary records are 48% smaller than xz. Prose needs context mixing, a different tool, which wins on size
-but runs about 250× slower than xz.</p></div>
 </div>
 
 <h2>1. Is there one compression that does well everywhere? Can we sample instead of trying everything?</h2>
@@ -360,50 +296,17 @@ but only 1% within their block). A chunk-level shared dictionary is the biggest 
 <li>Later: a chunk-level shared dictionary (format change) for cross-block repeats.</li>
 </ol>
 
-<h2>3. Could this extend to text or binary data?</h2>
-<p>Five ideas prototyped on 46 real files (Canterbury corpus, 10 MB of Wikipedia, numeric CSVs, two system logs,
-an executable, a SQLite file, binary records, PCM audio) and compared with gzip, bzip2, zstd, xz, brotli and flac.
-All {n_q3_methods} methods round-trip byte-exact.</p>
-{table(["category", "files", "raw", "xz -9e", "best standard tool (per file)", "best of ours (per file)", "vs best standard"], q3_cat_rows)}
-<h3>Selected files (bytes)</h3>
-{table(["file", "raw", "xz -9e", "best standard tool", "ours", "change", "what"], q3_rows, "lastleft")}
-<h3>Speed (encode / decode MB/s, single core)</h3>
-{table(["method"] + ["enwik8 10 MB", "Stocks CSV 143 MB", "journal", "binary records"], q3_speed_rows)}
-<ul>
-<li><b>Numeric text is the showcase.</b> Tokenise each number exactly (digits plus formatting), then put the columns through
-gorilla <code>auto</code>. Stocks CSV comes out at half of xz, and decodes at about 48 MB/s with xz for the leftover strings.</li>
-<li><b>Logs:</b> templates plus epoch timestamps through gorilla are 29% smaller than xz, but only when there are few templates
-with numeric variables. A package log with thousands of unique templates gains nothing.</li>
-<li><b>Binary with records:</b> stride detection found the record size every time (4, 8, 13, 20, 42, 216 bytes). Typed fields
-through gorilla came out at half of xz and decode at 177 MB/s.</li>
-<li><b>Audio:</b> the library's order ≤ 2 predictors lose to FLAC, but LPC in front of the library's Rice/adaptive coders beats <code>flac -8</code>.</li>
-<li><b>Prose:</b> numeric modelling adds nothing. A context-mixing coder beats xz and brotli by 10–20% but runs at
-about 0.5 MB/s. The library's range coder with simple contexts is worse than gzip: the modelling matters, not the coder.</li>
-</ul>
-<pre>bytes ─► sniff ─┬─ delimited text ─► exact number tokenizer ─► numeric columns ─► gorilla auto
-                │                                               strings ──────────► zstd / xz
-                ├─ line logs ─────► template miner ──► timestamps ─► gorilla delta; numeric slots ─► gorilla auto
-                ├─ fixed records ─► stride + field typing ─► typed columns ─► gorilla auto
-                ├─ PCM audio ─────► stereo mode + LPC ─► library Rice / adaptive coders
-                └─ anything else ─► zstd / xz (or context mixing when ratio matters more than speed)</pre>
-<p><b>Answer:</b> don't turn the core into a general text compressor. Ship a companion crate that finds the
-numbers inside text and binary (CSV columns, log variables, record fields, audio samples) and hands them to the
-library, with zstd/xz for everything else. Worth adding to the core: an <code>Lpc</code> integer mode.</p>
-
 <h2>Method, caveats, reproduce</h2>
 <ul class="note">
 <li>Datasets: 22 Elf sets (about 100k-value subsets of the sets in the Elf and ALP papers, so only roughly comparable with their full-set numbers), Chimp Stocks-Germany (5M), timestamps.
 Fetch with <code>scripts/fetch-bench-data.sh</code>. The harness reproduces Gorilla's published bits/value to within 0.07.</li>
-<li>Machine: one core of an i7-8700K. Q1 timing was run sequentially on an idle machine. Q2 was re-run on an idle machine.
-Q3 ran 6 jobs in parallel, so its speeds are ±30%, and CLI tool timings include process start-up.</li>
-<li>Spot checks by hand: system xz/zstd on raw f64 bytes match Q2's baselines, and three Q3 results (columnar CSV, binary records, log)
-were re-encoded and decoded from the command line: same sizes, identical round trips.</li>
+<li>Machine: one core of an i7-8700K. Q1 timing was run sequentially on an idle machine. Q2 was re-run on an idle machine.</li>
+<li>Spot checks by hand: system xz/zstd on raw f64 bytes match Q2's baselines.</li>
 <li>Experiment codecs aren't hardened against corrupt input. They're research code, not library code.</li>
 <li>Reproduce: <code>experiments/q1-mode-selection</code>: <code>cargo run --release</code> and <code>cargo run --release -- --timing</code>.
 <code>experiments/q2-strategies</code>: <code>cargo run --release -- --jobs 1</code>.
-<code>experiments/q3-text-binary</code>: see its README (data fetch, then <code>bench all all 6</code> and <code>report</code>).
 This page: <code>python3 experiments/results/make_summary.py</code>.</li>
-<li>Write-ups: <code>experiments/results/q2-findings.md</code>, <code>q3-findings.md</code>. Raw data: <code>q1.json</code>, <code>q1-timing.json</code>, <code>q2.json</code>, <code>q3.json</code>.</li>
+<li>Write-ups: <code>experiments/results/q2-findings.md</code>. Raw data: <code>q1.json</code>, <code>q1-timing.json</code>, <code>q2.json</code>.</li>
 </ul>
 </main></body></html>
 """

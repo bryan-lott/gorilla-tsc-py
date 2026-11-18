@@ -7,7 +7,6 @@ pcodec, ...) never reach `crates/`.
 - `common/` - dataset loader shared by every experiment
 - `q1-mode-selection/` - does one codec do well everywhere? sample-then-lock
 - `q2-strategies/` - other compression strategies and baselines
-- `q3-text-binary/` - extending the ideas to text and binary data
 - `results/` - raw outputs (JSON/text) and the summary page
 
 Datasets: `scripts/fetch-bench-data.sh` (Chimp + Elf benchmark sets).

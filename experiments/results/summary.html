@@ -26,9 +26,9 @@ pre{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:
 table.lastleft td:last-child,table.lastleft th:last-child{text-align:left}
 </style></head><body><main>
 <h1>gorilla-tsc: overnight research results</h1>
-<p class="sub">Three questions about the compression library. Every number below was measured on this machine and read
+<p class="sub">Two questions about the compression library. Every number below was measured on this machine and read
 from the JSON results files. Every codec reported was decoded and compared bit-for-bit
-(Q2: 40/40 methods verified, Q3: 20/20, Q1: all profiles).</p>
+(Q2: 40/40 methods verified, Q1: all profiles).</p>
 
 <div class="cards">
 <div class="card"><h3>1. One codec for everything?</h3>
@@ -42,11 +42,6 @@ The cost is in the parameter search <em>inside</em> decimal. Locking the paramet
 <p>Five new per-block candidates (dictionary, repeat cache, decimal split, adaptive bit split, LPC) together
 shrink output by about 14% while keeping 1000-value random access, and beat xz and pcodec on time series.
 The biggest single win is the decimal split on float32-derived data (Basel-temp 25.6 → 11.9 bits/value).</p></div>
-<div class="card"><h3>3. Text and binary</h3>
-<div class="big">Yes, where there are numbers inside</div>
-<p>Columnar CSV through gorilla <code>auto</code> is about half the size of xz. Log templates are 29% smaller than xz.
-Typed binary records are 48% smaller than xz. Prose needs context mixing, a different tool, which wins on size
-but runs about 250× slower than xz.</p></div>
 </div>
 
 <h2>1. Is there one compression that does well everywhere? Can we sample instead of trying everything?</h2>
@@ -111,49 +106,16 @@ but only 1% within their block). A chunk-level shared dictionary is the biggest 
 <li>Later: a chunk-level shared dictionary (format change) for cross-block repeats.</li>
 </ol>
 
-<h2>3. Could this extend to text or binary data?</h2>
-<p>Five ideas prototyped on 46 real files (Canterbury corpus, 10 MB of Wikipedia, numeric CSVs, two system logs,
-an executable, a SQLite file, binary records, PCM audio) and compared with gzip, bzip2, zstd, xz, brotli and flac.
-All 20 methods round-trip byte-exact.</p>
-<table class=""><thead><tr><th>category</th><th>files</th><th>raw</th><th>xz -9e</th><th>best standard tool (per file)</th><th>best of ours (per file)</th><th>vs best standard</th></tr></thead><tbody><tr><td>text</td><td>9</td><td>11.2 MB</td><td>3.11 MB</td><td>3.05 MB</td><td>2.59 MB</td><td><span class="good">-15.0%</span></td></tr><tr><td>binary</td><td>8</td><td>87.0 MB</td><td>13.28 MB</td><td>12.74 MB</td><td>10.21 MB</td><td><span class="good">-19.8%</span></td></tr><tr><td>numeric-text</td><td>25</td><td>227.1 MB</td><td>16.97 MB</td><td>15.80 MB</td><td>10.22 MB</td><td><span class="good">-35.3%</span></td></tr><tr><td>log</td><td>2</td><td>23.7 MB</td><td>0.19 MB</td><td>0.19 MB</td><td>0.13 MB</td><td><span class="good">-29.7%</span></td></tr><tr><td>audio</td><td>2</td><td>11.8 MB</td><td>10.71 MB</td><td>7.05 MB</td><td>6.73 MB</td><td><span class="good">-4.6%</span></td></tr></tbody></table>
-<h3>Selected files (bytes)</h3>
-<table class="lastleft"><thead><tr><th>file</th><th>raw</th><th>xz -9e</th><th>best standard tool</th><th>ours</th><th>change</th><th>what</th></tr></thead><tbody><tr><td>Stocks-Germany-sample.txt</td><td>143,158,312</td><td>9,704,892</td><td>9,704,892 <small>xz -9e</small></td><td>5,097,447 <small>ours-columnar+xz</small></td><td><span class="good">-47.5%</span></td><td>numeric CSV, columns through gorilla auto</td></tr><tr><td>city_temperature.csv</td><td>69,666,389</td><td>3,906,956</td><td>3,004,324 <small>bzip2 -9</small></td><td>2,623,148 <small>ours-columnar+cm</small></td><td><span class="good">-12.7%</span></td><td>numeric CSV</td></tr><tr><td>elf/City-lat.csv</td><td>330,225</td><td>122,264</td><td>106,655 <small>bzip2 -9</small></td><td>106,978 <small>ours-columnar+xz</small></td><td><span class="">+0.3%</span></td><td>unordered numbers: columnar adds nothing</td></tr><tr><td>system journal (125k lines)</td><td>19,574,412</td><td>101,040</td><td>101,040 <small>xz -9e</small></td><td>71,812 <small>ours-log+xz</small></td><td><span class="good">-28.9%</span></td><td>log templates + gorilla timestamps</td></tr><tr><td>package-manager log</td><td>4,083,400</td><td>86,484</td><td>86,484 <small>xz -9e</small></td><td>85,783 <small>ours-log+xz</small></td><td><span class="good">-0.8%</span></td><td>too many templates: no gain</td></tr><tr><td>stock ticks, 20-byte records (i64 ts, f64 price, i32 vol)</td><td>20,000,000</td><td>1,954,704</td><td>1,954,704 <small>xz -9e</small></td><td>1,008,141 <small>ours-struct</small></td><td><span class="good">-48.4%</span></td><td>stride detection + typed fields</td></tr><tr><td>SQLite DB (built from bench data)</td><td>15,937,536</td><td>1,892,300</td><td>1,892,300 <small>xz -9e</small></td><td>1,167,090 <small>ours-cm-stride</small></td><td><span class="good">-38.3%</span></td><td>context mixing with record stride</td></tr><tr><td>ELF x86-64 executable</td><td>14,627,000</td><td>2,957,212</td><td>2,864,980 <small>xz -9e --x86</small></td><td>2,708,740 <small>ours-cm-bcj</small></td><td><span class="good">-5.5%</span></td><td>x86 BCJ filter + context mixing</td></tr><tr><td>enwik8 (first 10 MB)</td><td>10,000,000</td><td>2,720,256</td><td>2,704,839 <small>brotli -q11</small></td><td>2,275,041 <small>ours-cm</small></td><td><span class="good">-15.9%</span></td><td>prose: context mixing</td></tr><tr><td>alice29.txt</td><td>152,089</td><td>48,528</td><td>43,202 <small>bzip2 -9</small></td><td>39,384 <small>ours-cm</small></td><td><span class="good">-8.8%</span></td><td>prose</td></tr><tr><td>music, 60 s 16-bit stereo PCM (decoded from MP3)</td><td>10,584,000</td><td>10,050,496</td><td>6,789,871 <small>flac -8</small></td><td>6,499,636 <small>ours-lpc</small></td><td><span class="good">-4.3%</span></td><td>LPC + library Rice/adaptive coders vs FLAC</td></tr></tbody></table>
-<h3>Speed (encode / decode MB/s, single core)</h3>
-<table class=""><thead><tr><th>method</th><th>enwik8 10 MB</th><th>Stocks CSV 143 MB</th><th>journal</th><th>binary records</th></tr></thead><tbody><tr><td><code>xz -9e</code></td><td>1.64 / 108.1</td><td>0.40 / 202.9</td><td>4.39 / 779.6</td><td>1.99 / 168.9</td></tr><tr><td><code>zstd -19</code></td><td>2.09 / 496.6</td><td>1.60 / 864.6</td><td>9.39 / 1386.0</td><td>2.65 / 699.7</td></tr><tr><td><code>ours-cm</code></td><td>0.39 / 0.4</td><td>0.67 / 0.7</td><td>0.66 / 0.7</td><td>0.57 / 0.5</td></tr><tr><td><code>ours-columnar+xz</code></td><td>–</td><td>0.88 / 48.2</td><td>–</td><td>–</td></tr><tr><td><code>ours-log+xz</code></td><td>–</td><td>–</td><td>9.07 / 117.0</td><td>–</td></tr><tr><td><code>ours-struct</code></td><td>–</td><td>–</td><td>–</td><td>3.20 / 176.8</td></tr></tbody></table>
-<ul>
-<li><b>Numeric text is the showcase.</b> Tokenise each number exactly (digits plus formatting), then put the columns through
-gorilla <code>auto</code>. Stocks CSV comes out at half of xz, and decodes at about 48 MB/s with xz for the leftover strings.</li>
-<li><b>Logs:</b> templates plus epoch timestamps through gorilla are 29% smaller than xz, but only when there are few templates
-with numeric variables. A package log with thousands of unique templates gains nothing.</li>
-<li><b>Binary with records:</b> stride detection found the record size every time (4, 8, 13, 20, 42, 216 bytes). Typed fields
-through gorilla came out at half of xz and decode at 177 MB/s.</li>
-<li><b>Audio:</b> the library's order ≤ 2 predictors lose to FLAC, but LPC in front of the library's Rice/adaptive coders beats <code>flac -8</code>.</li>
-<li><b>Prose:</b> numeric modelling adds nothing. A context-mixing coder beats xz and brotli by 10–20% but runs at
-about 0.5 MB/s. The library's range coder with simple contexts is worse than gzip: the modelling matters, not the coder.</li>
-</ul>
-<pre>bytes ─► sniff ─┬─ delimited text ─► exact number tokenizer ─► numeric columns ─► gorilla auto
-                │                                               strings ──────────► zstd / xz
-                ├─ line logs ─────► template miner ──► timestamps ─► gorilla delta; numeric slots ─► gorilla auto
-                ├─ fixed records ─► stride + field typing ─► typed columns ─► gorilla auto
-                ├─ PCM audio ─────► stereo mode + LPC ─► library Rice / adaptive coders
-                └─ anything else ─► zstd / xz (or context mixing when ratio matters more than speed)</pre>
-<p><b>Answer:</b> don't turn the core into a general text compressor. Ship a companion crate that finds the
-numbers inside text and binary (CSV columns, log variables, record fields, audio samples) and hands them to the
-library, with zstd/xz for everything else. Worth adding to the core: an <code>Lpc</code> integer mode.</p>
-
 <h2>Method, caveats, reproduce</h2>
 <ul class="note">
 <li>Datasets: 22 Elf sets (about 100k-value subsets of the sets in the Elf and ALP papers, so only roughly comparable with their full-set numbers), Chimp Stocks-Germany (5M), timestamps.
 Fetch with <code>scripts/fetch-bench-data.sh</code>. The harness reproduces Gorilla's published bits/value to within 0.07.</li>
-<li>Machine: one core of an i7-8700K. Q1 timing was run sequentially on an idle machine. Q2 was re-run on an idle machine.
-Q3 ran 6 jobs in parallel, so its speeds are ±30%, and CLI tool timings include process start-up.</li>
-<li>Spot checks by hand: system xz/zstd on raw f64 bytes match Q2's baselines, and three Q3 results (columnar CSV, binary records, log)
-were re-encoded and decoded from the command line: same sizes, identical round trips.</li>
+<li>Machine: one core of an i7-8700K. Q1 timing was run sequentially on an idle machine. Q2 was re-run on an idle machine.</li>
+<li>Spot checks by hand: system xz/zstd on raw f64 bytes match Q2's baselines.</li>
 <li>Experiment codecs aren't hardened against corrupt input. They're research code, not library code.</li>
 <li>Reproduce: <code>experiments/q1-mode-selection</code>: <code>cargo run --release</code> and <code>cargo run --release -- --timing</code>.
 <code>experiments/q2-strategies</code>: <code>cargo run --release -- --jobs 1</code>.
-<code>experiments/q3-text-binary</code>: see its README (data fetch, then <code>bench all all 6</code> and <code>report</code>).
 This page: <code>python3 experiments/results/make_summary.py</code>.</li>
-<li>Write-ups: <code>experiments/results/q2-findings.md</code>, <code>q3-findings.md</code>. Raw data: <code>q1.json</code>, <code>q1-timing.json</code>, <code>q2.json</code>, <code>q3.json</code>.</li>
+<li>Write-ups: <code>experiments/results/q2-findings.md</code>. Raw data: <code>q1.json</code>, <code>q1-timing.json</code>, <code>q2.json</code>.</li>
 </ul>
 </main></body></html>
