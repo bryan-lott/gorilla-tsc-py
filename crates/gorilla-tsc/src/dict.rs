@@ -103,7 +103,7 @@ impl IndexCoder {
 
 /// Significant bits of `n` (0 for zero).
 fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 /// Differences of consecutive indices (the first against 0), wrapping.

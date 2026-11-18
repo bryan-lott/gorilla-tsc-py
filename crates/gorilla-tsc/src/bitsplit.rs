@@ -47,7 +47,7 @@ const fn mask(r: u32) -> u64 {
 
 /// Significant bits of `n` (0 for zero).
 const fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 /// Distinct left parts of `sorted` (ascending words) at split `r`, most

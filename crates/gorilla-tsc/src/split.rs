@@ -88,7 +88,7 @@ fn join(q: &[u64], r: &[u64], g: i64) -> Vec<u64> {
 
 /// A cheap size estimate: bit widths of zig-zagged first differences.
 fn proxy(v: &[u64]) -> u64 {
-    v.windows(2).map(|p| u64::from(p[1].wrapping_sub(p[0]).zigzag().bit_width())).sum()
+    v.windows(2).map(|p| u64::from(u64::BITS - p[1].wrapping_sub(p[0]).zigzag().leading_zeros())).sum()
 }
 
 /// [`proxy`] of the two halves of splitting `x` at `g`, without building them.
@@ -97,8 +97,8 @@ fn split_proxy(x: &[u64], g: i64) -> u64 {
     let mut total = 0;
     for &w in x.iter().skip(1) {
         let cur = split_one(w.cast_signed(), g);
-        total += u64::from(cur.0.wrapping_sub(prev.0).cast_unsigned().zigzag().bit_width());
-        total += u64::from(cur.1.wrapping_sub(prev.1).cast_unsigned().zigzag().bit_width());
+        total += u64::from(u64::BITS - cur.0.wrapping_sub(prev.0).cast_unsigned().zigzag().leading_zeros());
+        total += u64::from(u64::BITS - cur.1.wrapping_sub(prev.1).cast_unsigned().zigzag().leading_zeros());
         prev = cur;
     }
     total

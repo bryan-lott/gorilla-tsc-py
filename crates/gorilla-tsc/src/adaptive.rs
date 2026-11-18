@@ -51,7 +51,7 @@ fn class(mag: u64) -> usize {
 /// `|s|` and its bit length, for a signed residual.
 fn magnitude(s: i128) -> (u64, u32) {
     let mag = u64::try_from(s.unsigned_abs()).unwrap_or(u64::MAX);
-    (mag, mag.bit_width())
+    (mag, u64::BITS - mag.leading_zeros())
 }
 
 impl AdaptiveBlock {

@@ -6,6 +6,8 @@ exclude = ["experiments"]
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
+# Oldest Rust that builds the libraries (tests may need newer: dev-dependencies).
+rust-version = "1.87"
 authors = ["Bryan Lott <bryan.lott@pm.me>"]
 license = "MIT"
 

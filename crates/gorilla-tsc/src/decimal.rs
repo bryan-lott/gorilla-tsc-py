@@ -216,7 +216,7 @@ pub(crate) fn unscale<T: Sample>(ints: Vec<u64>, k: i32, exceptions: Exceptions<
 const K_BITS: u32 = 6;
 
 fn bit_len(n: usize) -> u32 {
-    n.bit_width()
+    usize::BITS - n.leading_zeros()
 }
 
 impl<T: Sample> BlockCodec<T::Word> for DecimalRice<T> {

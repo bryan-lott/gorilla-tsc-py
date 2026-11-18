@@ -235,7 +235,7 @@ mod tests {
 
     /// Cost of a block's first value: zig-zagged, 7-bit (u64) length prefix.
     fn first(v: u64) -> u64 {
-        7 + u64::from(v.zigzag().bit_width())
+        7 + u64::from(u64::BITS - v.zigzag().leading_zeros())
     }
 
     /// Cheapest coding of residuals, including the coder bit.
