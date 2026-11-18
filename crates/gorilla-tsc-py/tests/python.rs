@@ -24,14 +24,21 @@ fn built_extension() -> PathBuf {
         .status()
         .unwrap();
     assert!(status.success(), "building the extension failed");
-    let name = if cfg!(target_os = "macos") { "lib_native.dylib" } else { "lib_native.so" };
+    let name = if cfg!(windows) {
+        "_native.dll"
+    } else if cfg!(target_os = "macos") {
+        "lib_native.dylib"
+    } else {
+        "lib_native.so"
+    };
     target.join("debug").join(name)
 }
 
 #[test]
 fn python_suite_passes_against_this_build() {
     let ws = workspace();
-    let python = std::env::var_os("GTSC_PYTHON").map_or_else(|| ws.join(".venv/bin/python"), PathBuf::from);
+    let venv_python = if cfg!(windows) { ".venv/Scripts/python.exe" } else { ".venv/bin/python" };
+    let python = std::env::var_os("GTSC_PYTHON").map_or_else(|| ws.join(venv_python), PathBuf::from);
     assert!(python.exists(), "no Python at {}; run `uv sync` or set GTSC_PYTHON", python.display());
 
     // Stage the package: pure-Python sources plus the fresh extension.
@@ -44,7 +51,9 @@ fn python_suite_passes_against_this_build() {
             std::fs::copy(&p, pkg.join(p.file_name().unwrap())).unwrap();
         }
     }
-    std::fs::copy(built_extension(), pkg.join("_native.abi3.so")).unwrap();
+    // The name Python imports an extension module under on this platform.
+    let module = if cfg!(windows) { "_native.pyd" } else { "_native.abi3.so" };
+    std::fs::copy(built_extension(), pkg.join(module)).unwrap();
 
     let status = Command::new(python)
         .args(["-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "--import-mode=importlib"])
