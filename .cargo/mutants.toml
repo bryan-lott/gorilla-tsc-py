@@ -1,0 +1,24 @@
+# cargo-mutants configuration. Each exclusion is a mutant that cannot change
+# observable behaviour, with the reason.
+exclude_re = [
+    # OR of non-overlapping bit ranges: `^` and `|` are identical.
+    "bits.rs.*replace \\| with \\^ in BitWriter::write",
+    "stream.rs.*replace \\| with \\^ in write_varint",
+    "stream.rs.*replace \\| with \\^ in Header::descriptor",
+    "adaptive.rs.*replace \\| with \\^ in AdaptiveBlock::decode",
+    "range.rs.*replace \\| with \\^ in RangeDecoder.*::(normalize|direct)",
+    "rice.rs.*replace \\| with \\^ in RiceBlock::decode",
+    # g == 1 adds a duplicate scale-1 candidate with identical costs.
+    "rice.rs.*replace > with >= in RiceBlock::choose",
+    # Tie-breaks between encodings of equal size: either decodes identically.
+    "rice.rs.*replace < with <= in RiceBlock::choose",
+    "delta.rs.*replace < with <= in .*DeltaRice.*::encode_block",
+    # (bits, k) pairs are never equal: each exponent is tried once.
+    "decimal.rs.*replace < with <= in best_encoding",
+    # Weakening the pruning bound only tries more candidates; a candidate whose
+    # exceptions alone cost >= the best also pays a header, so cannot win.
+    "decimal.rs.*replace > with (==|>=) in best_encoding",
+    "decimal.rs.*replace \\* with [+/] in best_encoding",
+    # Vec capacity hint only; never affects output.
+    "stream.rs.*replace \\* with [+/] in decode",
+]

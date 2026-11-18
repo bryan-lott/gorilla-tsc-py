@@ -37,12 +37,23 @@ logger = logging.getLogger(__name__)
 
 def zigzag_encode(value: int) -> int:
     """Encode signed int to unsigned using zig-zag."""
-    return (value << 1) ^ (value >> 63) if value < 0 else value << 1
+    return -2 * value - 1 if value < 0 else 2 * value
 
 
 def zigzag_decode(value: int) -> int:
     """Decode unsigned to signed using zig-zag."""
-    return -(value >> 1) if value & 1 else value >> 1
+    return -(value >> 1) - 1 if value & 1 else value >> 1
+
+
+def _xor_field_bits(width: int) -> tuple:
+    """Bit widths of the (leading-zeros, length) header fields for an XOR of `width` bits."""
+    lz_bits = 5 if width > 32 else 4  # leading zeros are capped to fit
+    len_bits = (width - 1).bit_length()  # stores length - 1 (1..width)
+    return lz_bits, len_bits
+
+
+def _sign_extend(value: int, bits: int) -> int:
+    return value - (1 << bits) if value & (1 << (bits - 1)) else value
 
 
 class BitStream:
@@ -138,18 +149,19 @@ class TimestampsEncoder:
         """Write delta-of-delta with variable bits."""
         if dod == 0:
             self.bitstream.write_bits(0b0, 1)
-        elif -63 <= dod <= 64:
+        elif -64 <= dod <= 63:
             self.bitstream.write_bits(0b10, 2)
             self.bitstream.write_bits(dod & 0x7F, 7)  # 7 bits signed
-        elif -255 <= dod <= 256:
+        elif -256 <= dod <= 255:
             self.bitstream.write_bits(0b110, 3)
             self.bitstream.write_bits(dod & 0x1FF, 9)
-        elif -2047 <= dod <= 2048:
+        elif -2048 <= dod <= 2047:
             self.bitstream.write_bits(0b1110, 4)
             self.bitstream.write_bits(dod & 0xFFF, 12)
         else:
             self.bitstream.write_bits(0b1111, 4)
-            max_bits = 32 if self.precision == "int64" else 16
+            # Deltas of N-bit ints span N+1 bits; their difference spans N+2.
+            max_bits = (64 if self.precision == "int64" else 32) + 2
             self.bitstream.write_bits(dod & ((1 << max_bits) - 1), max_bits)
 
     def encode_next(self, ts: int) -> bool:
@@ -228,10 +240,7 @@ class TimestampsDecoder:
         self.debug = debug
 
     def _read_full_timestamp(self) -> int:
-        if self.precision == "int32":
-            return self.bitstream.read_bits(32)
-        else:
-            return self.bitstream.read_bits(64)
+        return self._signed_bits(32 if self.precision == "int32" else 64)
 
     def _read_delta_of_delta(self) -> int:
         prefix = self.bitstream.read_bits(1)
@@ -247,7 +256,7 @@ class TimestampsDecoder:
         if prefix4 == 0:  # 1110
             return self._signed_bits(12)
         else:  # 1111
-            max_bits = 32 if self.precision == "int64" else 16
+            max_bits = (64 if self.precision == "int64" else 32) + 2
             return self._signed_bits(max_bits)
 
     def _signed_bits(self, bits: int) -> int:
@@ -329,11 +338,13 @@ class ValuesEncoder:
         self.prev_val = None
         self.prev_delta = None
         self.prev_xor = None  # For stacked modes
-        self.prev_lz = 0
-        self.prev_tz = 0
-        self.prev_len = 1  # dummy
+        self.window = None  # (leading_zeros, trailing_zeros, length) of last XOR header
         self.count = 0
         self.debug = debug
+
+    @property
+    def _bits(self) -> int:
+        return 32 if self.precision == "f32" else 64
 
     def _pack_float(self, val: float) -> int:
         if self.precision == "f32":
@@ -346,58 +357,45 @@ class ValuesEncoder:
         bits = 32 if self.precision == "f32" else 64
         self.bitstream.write_bits(packed, bits)
 
-    def _write_xor(self, xor_val: int):
+    def _write_xor(self, xor_val: int, width: int):
+        """Write a non-negative XOR of `width` bits using Gorilla's windowed scheme."""
         if xor_val == 0:
             self.bitstream.write_bits(0, 1)
             return
         self.bitstream.write_bits(1, 1)
-        # Find leading/trailing zeros
-        leading_zeros = 0
-        while leading_zeros < 64 and (xor_val & (1 << (63 - leading_zeros))) == 0:
-            leading_zeros += 1
-        trailing_zeros = 0
-        while (
-            trailing_zeros < 64 - leading_zeros
-            and (xor_val & (1 << trailing_zeros)) == 0
-        ):
-            trailing_zeros += 1
-        meaningful_bits = 64 - leading_zeros - trailing_zeros
+        lz_bits, len_bits = _xor_field_bits(width)
+        leading_zeros = min(width - xor_val.bit_length(), (1 << lz_bits) - 1)
+        trailing_zeros = (xor_val & -xor_val).bit_length() - 1
         if (
-            self.prev_lz is not None
-            and self.prev_tz is not None
-            and leading_zeros >= self.prev_lz
-            and trailing_zeros >= self.prev_tz
+            self.window is not None
+            and leading_zeros >= self.window[0]
+            and trailing_zeros >= self.window[1]
         ):
-            # Case a: reuse prev
+            # Case a: fits inside the previous window; reuse its header
+            _, prev_tz, prev_len = self.window
             self.bitstream.write_bits(0, 1)
-            meaningful = xor_val >> trailing_zeros
-            self.bitstream.write_bits(meaningful, self.prev_len)
+            self.bitstream.write_bits(xor_val >> prev_tz, prev_len)
         else:
-            # Case b
+            # Case b: new window header
+            meaningful_bits = width - leading_zeros - trailing_zeros
             self.bitstream.write_bits(1, 1)
-            lz_bits = 5 if self.precision == "f64" else 4
-            len_bits = 6 if self.precision == "f64" else 5
             self.bitstream.write_bits(leading_zeros, lz_bits)
-            self.bitstream.write_bits(meaningful_bits, len_bits)
-            meaningful = xor_val >> trailing_zeros
-            self.bitstream.write_bits(meaningful, meaningful_bits)
-        self.prev_lz = leading_zeros
-        self.prev_tz = trailing_zeros
-        self.prev_len = meaningful_bits
+            self.bitstream.write_bits(meaningful_bits - 1, len_bits)
+            self.bitstream.write_bits(xor_val >> trailing_zeros, meaningful_bits)
+            self.window = (leading_zeros, trailing_zeros, meaningful_bits)
 
     def _write_dod(self, dod: int):
         # Zig-zag encode the signed dod
         zz_dod = zigzag_encode(dod)
         if zz_dod == 0:
             self.bitstream.write_bits(0, 1)
-        elif zz_dod <= 127:  # -63 to 64 mapped
+        elif zz_dod <= 127:
             self.bitstream.write_bits(0b10, 2)
             self.bitstream.write_bits(zz_dod, 7)
-        # Simplified, add more ranges if needed
         else:
-            self.bitstream.write_bits(0b1111, 4)
-            bits = 32 if self.precision == "f64" else 16
-            self.bitstream.write_bits(zz_dod & ((1 << bits) - 1), bits)
+            # A dod of two (bits+1)-bit deltas zig-zags into bits+2 bits.
+            self.bitstream.write_bits(0b11, 2)
+            self.bitstream.write_bits(zz_dod, self._bits + 2)
 
     def encode_next(self, val: float) -> bool:
         if self.debug:
@@ -415,8 +413,7 @@ class ValuesEncoder:
             self._write_full_value(val)
             self.prev_val = packed
             self.prev_delta = None
-            # For XOR, reset to force case b next
-            self.prev_lz = 0
+            self.window = None  # next XOR must carry a fresh header
         else:
             if self.prev_val is None:
                 return False
@@ -428,7 +425,7 @@ class ValuesEncoder:
                     logger.debug(
                         f"  XOR with prev: {xor_val} (full: {xor_bin}) - meaningful bits stored: {meaningful_start} (skips leading zeros)"
                     )
-                self._write_xor(xor_val)
+                self._write_xor(xor_val, bits)
             elif self.mode == "dod":
                 delta = packed - self.prev_val
                 if self.debug:
@@ -457,40 +454,37 @@ class ValuesEncoder:
                     self._write_dod(dod)
                 else:
                     # First delta after checkpoint, write as full delta zig-zagged
-                    bits_delta = 32 if self.precision == "f64" else 16
+                    bits_delta = bits + 1  # zig-zagged delta of two `bits`-bit ints
                     zz_delta = zigzag_encode(delta)
                     if self.debug:
                         zz_bin = format(zz_delta, f"0{bits_delta}b").lstrip("0") or "0"
                         logger.debug(
                             f"  Full delta zig-zag: {zz_delta} - meaningful: {zz_bin} (no leading zeros)"
                         )
-                    self.bitstream.write_bits(
-                        zz_delta & ((1 << bits_delta) - 1), bits_delta
-                    )
+                    self.bitstream.write_bits(zz_delta, bits_delta)
                 self.prev_delta = delta
             elif self.mode == "xor_dod":
                 # DoD first, then XOR on deltas
                 delta = packed - self.prev_val
                 if self.prev_delta is not None:
-                    xor_val = delta ^ self.prev_delta
+                    mask = (1 << (bits + 1)) - 1
+                    xor_val = (delta & mask) ^ (self.prev_delta & mask)
                     if self.debug:
                         xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
                         logger.debug(
                             f"  XOR on DoD: {xor_val} - meaningful: {xor_bin} (skips leading zeros)"
                         )
-                    self._write_xor(xor_val)
+                    self._write_xor(xor_val, bits + 1)
                 else:
                     # First delta, write full
-                    bits_delta = 32 if self.precision == "f64" else 16
+                    bits_delta = bits + 1  # zig-zagged delta of two `bits`-bit ints
                     zz_delta = zigzag_encode(delta)
                     if self.debug:
                         zz_bin = format(zz_delta, f"0{bits_delta}b").lstrip("0") or "0"
                         logger.debug(
                             f"  Full delta zig-zag: {zz_delta} - meaningful: {zz_bin}"
                         )
-                    self.bitstream.write_bits(
-                        zz_delta & ((1 << bits_delta) - 1), bits_delta
-                    )
+                    self.bitstream.write_bits(zz_delta, bits_delta)
                 self.prev_delta = delta
             elif self.mode == "dod_xor":
                 # XOR first, then DoD on XORs
@@ -555,9 +549,7 @@ class ValuesDecoder:
         self.mode = data["mode"]
         self.checkpoint_interval = data["checkpoint_interval"]
         self.count = data["nb_values"]
-        self.prev_lz = 0
-        self.prev_tz = 0
-        self.prev_len = 1
+        self.window = None  # (leading_zeros, trailing_zeros, length)
         self.prev_xor = None  # For stacked modes
         self.debug = debug
 
@@ -566,12 +558,6 @@ class ValuesDecoder:
             return struct.unpack(">I", struct.pack(">f", val))[0]
         else:
             return struct.unpack(">Q", struct.pack(">d", val))[0]
-
-    def _signed_bits(self, bits: int) -> int:
-        val = self.bitstream.read_bits(bits)
-        if val & (1 << (bits - 1)):  # Negative
-            val -= 1 << bits
-        return val
 
     def _unpack_float(self, packed: int) -> float:
         if self.precision == "f32":
@@ -584,25 +570,21 @@ class ValuesDecoder:
         packed = self.bitstream.read_bits(bits)
         return self._unpack_float(packed)
 
-    def _read_xor(self) -> int:
+    def _read_xor(self, width: int) -> int:
         if self.bitstream.read_bits(1) == 0:
             return 0
         control = self.bitstream.read_bits(1)
         if control == 0:
-            # Reuse prev
-            meaningful = self.bitstream.read_bits(self.prev_len)
-            xor_val = meaningful << self.prev_tz
-        else:
-            lz_bits = 5 if self.precision == "f64" else 4
-            len_bits = 6 if self.precision == "f64" else 5
-            leading_zeros = self.bitstream.read_bits(lz_bits)
-            meaningful_bits = self.bitstream.read_bits(len_bits)
-            meaningful = self.bitstream.read_bits(meaningful_bits)
-            xor_val = meaningful << leading_zeros
-            self.prev_lz = leading_zeros
-            self.prev_tz = 64 - leading_zeros - meaningful_bits
-            self.prev_len = meaningful_bits
-        return xor_val
+            if self.window is None:
+                raise ValueError("Corrupt stream: XOR window reused before being set")
+            _, prev_tz, prev_len = self.window
+            return self.bitstream.read_bits(prev_len) << prev_tz
+        lz_bits, len_bits = _xor_field_bits(width)
+        leading_zeros = self.bitstream.read_bits(lz_bits)
+        meaningful_bits = self.bitstream.read_bits(len_bits) + 1
+        trailing_zeros = width - leading_zeros - meaningful_bits
+        self.window = (leading_zeros, trailing_zeros, meaningful_bits)
+        return self.bitstream.read_bits(meaningful_bits) << trailing_zeros
 
     def _read_dod(self) -> int:
         prefix = self.bitstream.read_bits(1)
@@ -612,10 +594,9 @@ class ValuesDecoder:
             prefix2 = self.bitstream.read_bits(1)
             if prefix2 == 0:  # 10
                 zz_val = self.bitstream.read_bits(7)
-            # Simplified, assume no more prefixes for now
-            else:
-                bits = 32 if self.precision == "f64" else 16
-                zz_val = self.bitstream.read_bits(bits)
+            else:  # 11
+                bits = 32 if self.precision == "f32" else 64
+                zz_val = self.bitstream.read_bits(bits + 2)
         return zigzag_decode(zz_val)
 
     def decode_all(self) -> List[float]:
@@ -642,11 +623,12 @@ class ValuesDecoder:
                     )
                 prev_packed = packed
                 prev_delta = None
+                self.window = None
             else:
                 if prev_packed is None:
                     raise ValueError("Invalid state")
                 if self.mode == "xor":
-                    xor_val = self._read_xor()
+                    xor_val = self._read_xor(bits)
                     packed = prev_packed ^ xor_val
                     if self.debug:
                         xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
@@ -656,7 +638,7 @@ class ValuesDecoder:
                         )
                 elif self.mode == "dod":
                     if prev_delta is None:
-                        bits_delta = 32 if self.precision == "f64" else 16
+                        bits_delta = bits + 1  # zig-zagged delta of two `bits`-bit ints
                         zz_delta = self.bitstream.read_bits(bits_delta)
                         delta = zigzag_decode(zz_delta)
                         if self.debug:
@@ -696,7 +678,7 @@ class ValuesDecoder:
                 elif self.mode == "xor_dod":
                     # Read XOR on deltas
                     if prev_delta is None:
-                        bits_delta = 32 if self.precision == "f64" else 16
+                        bits_delta = bits + 1  # zig-zagged delta of two `bits`-bit ints
                         zz_delta = self.bitstream.read_bits(bits_delta)
                         delta = zigzag_decode(zz_delta)
                         if self.debug:
@@ -712,8 +694,9 @@ class ValuesDecoder:
                             )
                             logger.debug(f"  Full delta: {delta} ({delta_bin})")
                     else:
-                        xor_val = self._read_xor()
-                        delta = prev_delta ^ xor_val
+                        xor_val = self._read_xor(bits + 1)
+                        mask = (1 << (bits + 1)) - 1
+                        delta = _sign_extend((prev_delta & mask) ^ xor_val, bits + 1)
                         if self.debug:
                             xor_bin = format(xor_val, f"0{bits}b").lstrip("0") or "0"
                             delta_bin = (
@@ -800,7 +783,7 @@ class PairsEncoder:
         if not pairs:
             timestamps, values = [], []
         else:
-            timestamps, values = zip(*sorted(pairs))  # Sort by ts
+            timestamps, values = zip(*sorted(pairs, key=lambda p: p[0]))  # stable sort by ts
         ts_result = self.ts_encoder.encode_all(list(timestamps))
         val_result = self.val_encoder.encode_all(list(values))
         return {

@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+mutants/
+target/
+*.so
+*.pyd
+bench-data/

@@ -1,19 +1,29 @@
 [project]
 name = "gorilla-tsc-py"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Gorilla-style time series compression (Rust core) with stacked XOR/delta-of-delta modes"
 readme = "README.md"
-authors = [
-    { name = "Bryan Lott", email = "bryan.lott@pm.me" }
-]
+authors = [{ name = "Bryan Lott", email = "bryan.lott@pm.me" }]
+license = "MIT"
 requires-python = ">=3.13"
-dependencies = [
-    "hypothesis>=6.0.0"
-]
-
-[project.scripts]
-gorilla-tsc-py = "gorilla_tsc_py:main"
+dependencies = []
 
 [build-system]
-requires = ["uv_build>=0.9.18,<0.10.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "crates/gorilla-tsc-py/Cargo.toml"
+python-source = "python"
+module-name = "gorilla_tsc_py._native"
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = ["hypothesis>=6.0.0", "maturin>=1.16,<2", "pytest>=9.2.0"]
+
+[tool.uv]
+# Rebuild the extension when Rust sources change.
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "crates/**/*.rs" }, { file = "crates/**/Cargo.toml" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

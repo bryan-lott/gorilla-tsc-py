@@ -4,10 +4,6 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-sys.path.insert(
-    0,
-    "/Users/blott/.local/share/mise/installs/python/3.14.0/lib/python3.14/site-packages",
-)
 
 from hypothesis import given, strategies as st
 from gorilla_tsc_py import (

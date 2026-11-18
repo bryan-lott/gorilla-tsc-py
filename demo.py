@@ -1,209 +1,33 @@
-# demo.py: Gorilla TSC Demo Script
-# This script demonstrates the production readiness of the Gorilla time series compression library.
-# Run with: python demo.py
+"""Tour of gorilla_tsc_py: compress a sensor-like series with each mode.
 
-import sys
-import os
-import logging
+    uv run python demo.py
+"""
 
-# Configure logging for debug output
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
+import math
 
-# Add library path (adjust if needed)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+import gorilla_tsc_py as g
 
-from gorilla_tsc_py import (
-    TimestampsEncoder,
-    TimestampsDecoder,
-    ValuesEncoder,
-    ValuesDecoder,
-    PairsEncoder,
-    PairsDecoder,
-    estimate_ts_compression,
-    estimate_val_compression,
-)
+# One reading per 10 s with millisecond jitter, temperatures with one decimal.
+timestamps = [1_700_000_000_000 + 10_000 * i + (i * 7) % 5 for i in range(10_000)]
+temps = [round(20 + 5 * math.sin(i / 300) + ((i * 37) % 7 - 3) / 10, 1) for i in range(10_000)]
 
-print("=== Gorilla Time Series Compression Demo ===\n")
+print(f"{len(temps)} values; raw size {len(temps) * 8} bytes per column\n")
+print(f"{'mode':10} {'temps bytes':>12} {'bits/value':>11} {'timestamps bytes':>17} {'bits/value':>11}")
+for mode in ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"]:
+    v = g.encode(temps, mode=mode)
+    t = g.encode(timestamps, precision="int64", mode=mode)
+    assert g.decode(v) == temps and g.decode(t) == timestamps
+    print(f"{mode:10} {len(v):12} {len(v) * 8 / len(temps):11.2f} {len(t):17} {len(t) * 8 / len(timestamps):11.2f}")
 
-# Section 1: Basic Functionality - Round-Trip Accuracy
-print("1. Basic Round-Trip Encoding/Decoding (Proves Data Integrity)")
-# From README.md usage example
-timestamps = [1000, 1001, 1002, 1003]
-encoder = TimestampsEncoder(precision="int64", checkpoint_interval=100)
-result = encoder.encode_all(timestamps)
-decoder = TimestampsDecoder(result)
-decoded = decoder.decode_all()
-print(f"Original: {timestamps}")
-print(f"Decoded: {decoded}")
-print(f"Match: {timestamps == decoded} (Lossless!)\n")
+# Streams are self-describing.
+encoded = g.encode(temps)
+print("\nheader:", g.inspect(encoded))
 
-# Values example with intermediates (XOR mode) - 3 values
-values = [1.0, 1.0, 2.0]
-print(
-    "Detailed Encoding/Decoding for Values [1.0, 1.0, 2.0] in XOR mode (shows bit manipulations):"
-)
-encoder = ValuesEncoder(
-    mode="xor", precision="f64", checkpoint_interval=100, debug=True
-)
-result = encoder.encode_all(values)
-encoded_bin = "".join(format(byte, "08b") for byte in result["encoded"])
-uncompressed_bits = len(values) * (64 if "f64" in result["precision"] else 32)
-compressed_bits = len(result["encoded"]) * 8
-print(f"Encoded bytes: {result['encoded']} (binary: {encoded_bin})")
-print(
-    f"Compression: Original {uncompressed_bits} bits → Stored {compressed_bits} bits (no leading zeros stored)"
-)
-print()
+# The class API keeps the original dict-shaped results.
+pairs = list(zip(timestamps, temps))
+result = g.PairsEncoder().encode_all(pairs)
+assert g.PairsDecoder(result).decode_all() == pairs
+print(f"pairs: {len(result['encoded_ts']) + len(result['encoded_val'])} bytes for {len(pairs)} pairs")
 
-decoder = ValuesDecoder(result, debug=True)
-decoded = decoder.decode_all()
-print(f"Decoded: {decoded}")
-print(f"Match: {values == decoded}\n")
-
-# Timestamps example with intermediates - 4 timestamps
-timestamps = [1000, 1001, 1002, 1003]
-print("Detailed Encoding/Decoding for Timestamps [1000, 1001, 1002, 1003] in DoD mode:")
-ts_encoder = TimestampsEncoder(precision="int64", checkpoint_interval=100, debug=True)
-ts_result = ts_encoder.encode_all(timestamps)
-ts_encoded_bin = "".join(format(byte, "08b") for byte in ts_result["encoded"])
-ts_uncompressed_bits = len(timestamps) * (
-    64 if "int64" in ts_result["precision"] else 32
-)
-ts_compressed_bits = len(ts_result["encoded"]) * 8
-print(f"Encoded bytes: {ts_result['encoded']} (binary: {ts_encoded_bin})")
-print(
-    f"Compression: Original {ts_uncompressed_bits} bits → Stored {ts_compressed_bits} bits (no leading zeros stored)"
-)
-print()
-
-ts_decoder = TimestampsDecoder(ts_result, debug=True)
-ts_decoded = ts_decoder.decode_all()
-print(f"Decoded: {ts_decoded}")
-print(f"Match: {timestamps == ts_decoded}\n")
-
-# Values example with DoD (identical values for lossless demo)
-values_dod = [1.0, 1.0]
-print(
-    "Detailed Encoding/Decoding for Values [1.0, 1.0] in DoD mode (shows zig-zag on delta=0):"
-)
-encoder_dod = ValuesEncoder(
-    mode="dod", precision="f64", checkpoint_interval=100, debug=True
-)
-result_dod = encoder_dod.encode_all(values_dod)
-dod_encoded_bin = "".join(format(byte, "08b") for byte in result_dod["encoded"])
-dod_uncompressed_bits = len(values_dod) * 64
-dod_compressed_bits = len(result_dod["encoded"]) * 8
-print(f"Encoded bytes: {result_dod['encoded']} (binary: {dod_encoded_bin})")
-print(
-    f"Compression: Original {dod_uncompressed_bits} bits → Stored {dod_compressed_bits} bits"
-)
-print()
-
-decoder_dod = ValuesDecoder(result_dod, debug=True)
-decoded_dod = decoder_dod.decode_all()
-print(f"Decoded: {decoded_dod}")
-print(f"Match: {values_dod == decoded_dod}\n")
-
-# Values example with XOR_DoD (linear data)
-values_xor_dod = [1.0, 2.0, 3.0]
-print(
-    "Detailed Encoding/Decoding for Values [1.0, 2.0, 3.0] in XOR_DoD mode (DoD first, then XOR):"
-)
-encoder_xor_dod = ValuesEncoder(
-    mode="xor_dod", precision="f64", checkpoint_interval=100, debug=True
-)
-result_xor_dod = encoder_xor_dod.encode_all(values_xor_dod)
-xor_dod_encoded_bin = "".join(format(byte, "08b") for byte in result_xor_dod["encoded"])
-xor_dod_uncompressed_bits = len(values_xor_dod) * 64
-xor_dod_compressed_bits = len(result_xor_dod["encoded"]) * 8
-print(f"Encoded bytes: {result_xor_dod['encoded']} (binary: {xor_dod_encoded_bin})")
-print(
-    f"Compression: Original {xor_dod_uncompressed_bits} bits → Stored {xor_dod_compressed_bits} bits"
-)
-print()
-
-decoder_xor_dod = ValuesDecoder(result_xor_dod, debug=True)
-decoded_xor_dod = decoder_xor_dod.decode_all()
-print(f"Decoded: {decoded_xor_dod}")
-print(f"Match: {values_xor_dod == decoded_xor_dod}\n")
-
-# Values example with DoD_XOR (oscillating data)
-values_dod_xor = [1.0, 0.9, 1.0]
-print(
-    "Detailed Encoding/Decoding for Values [1.0, 0.9, 1.0] in DoD_XOR mode (XOR first, then DoD):"
-)
-encoder_dod_xor = ValuesEncoder(
-    mode="dod_xor", precision="f64", checkpoint_interval=100, debug=True
-)
-result_dod_xor = encoder_dod_xor.encode_all(values_dod_xor)
-dod_xor_encoded_bin = "".join(format(byte, "08b") for byte in result_dod_xor["encoded"])
-dod_xor_uncompressed_bits = len(values_dod_xor) * 64
-dod_xor_compressed_bits = len(result_dod_xor["encoded"]) * 8
-print(f"Encoded bytes: {result_dod_xor['encoded']} (binary: {dod_xor_encoded_bin})")
-print(
-    f"Compression: Original {dod_xor_uncompressed_bits} bits → Stored {dod_xor_compressed_bits} bits"
-)
-print()
-
-decoder_dod_xor = ValuesDecoder(result_dod_xor, debug=True)
-decoded_dod_xor = decoder_dod_xor.decode_all()
-print(f"Decoded: {decoded_dod_xor}")
-print(f"Match: {values_dod_xor == decoded_dod_xor}\n")
-
-# Section 2: Error Handling and Edge Cases (Proves Robustness)
-print("2. Error Handling and Edge Cases (Handles Real-World Inputs)")
-try:
-    # Invalid input - from code validation in gorilla_compression.py
-    encoder = TimestampsEncoder()
-    encoder.encode_all(["not", "ints"])  # Should raise TypeError
-except TypeError as e:
-    print(f"Caught expected error: {e}")
-
-# Edge case from tests/test_basic.py
-vals = [-1.0, -1.0]  # Negative values
-encoder = ValuesEncoder(mode="xor")
-result = encoder.encode_all(vals)
-decoder = ValuesDecoder(result)
-decoded = decoder.decode_all()
-print(f"Negative values handled: {vals} -> {decoded}\n")
-
-# Section 3: Performance Benchmarks (Proves Efficiency)
-print("3. Compression Benchmarks (Shows Space/Time Savings)")
-# From benchmark.py - simulate estimate functions
-ts_data = [1000 + i for i in range(100)]  # Linear timestamps
-stats = estimate_ts_compression(ts_data)
-print(
-    f"Timestamps (100 linear): Ratio {stats['ratio']:.1f}x, {stats['bits_per_item']:.1f} bits/item"
-)
-
-val_data = [1.0] * 100  # Identical values
-stats = estimate_val_compression(val_data, mode="xor")
-print(
-    f"Values (100 identical, XOR): Ratio {stats['ratio']:.1f}x, {stats['bits_per_item']:.1f} bits/item"
-)
-
-# From README benchmarks: Oscillating for zig-zag demo
-osc_vals = [1.0 + (-1) ** i * 0.1 for i in range(100)]
-stats_xor = estimate_val_compression(osc_vals, mode="xor")
-stats_dod = estimate_val_compression(osc_vals, mode="dod")
-print(f"Oscillating values (XOR): Ratio {stats_xor['ratio']:.1f}x")
-print(f"Oscillating values (DoD): Ratio {stats_dod['ratio']:.1f}x (Zig-zag helps!)\n")
-
-# Section 4: Automated Tests Summary (Proves Reliability)
-print("4. Automated Tests (Ensures Quality)")
-# Simulate running unit tests (in real demo, run: python tests/test_basic.py)
-# From tests/test_basic.py - key assertions
-print("Running unit tests...")
-# (In practice, call test functions here or run subprocess)
-print("✓ Timestamps round-trip")
-print("✓ Values XOR round-trip")
-print("✓ Pairs sorting and decoding")
-print("✓ Edge cases (negatives, empty, checkpoints)")
-print("✓ Hypothesis property tests (100+ random examples passed)\n")
-
-print("=== Summary ===")
-print("- Lossless: Data preserved exactly in round-trips.")
-print("- Robust: Handles errors and edge cases gracefully.")
-print("- Efficient: 10-40x compression with fast execution.")
-print("- Tested: Comprehensive unit + property-based tests.")
-print("This library is production-ready for time series compression!")
+# Estimates look at the first 1000 items.
+print("estimate:", g.estimate_val_compression(temps))
