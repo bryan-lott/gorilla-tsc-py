@@ -216,7 +216,15 @@ whose `Word` (`u32`/`u64`) fixes every bit width, so a field width cannot
 disagree with the data it describes. Arithmetic on words wraps, so residuals
 always fit a word. Decoding never panics on untrusted input: it returns a
 `DecodeError` for truncation, trailing data, unknown modes, impossible field
-values, or a stream of a different element type.
+values, or a stream of a different element type. Decoders reserve memory only
+in proportion to the input they were given, whatever the header claims, and
+`cargo fuzz` targets in `fuzz/` check both properties.
+
+The output is exactly as long as the header's item count, and a valid stream
+can legitimately be tiny for a huge count (one repeated value costs almost
+nothing per item). When decoding untrusted data, check the count before
+decoding: `read_header(bytes)?.0.count` in Rust, `inspect(data)["count"]` in
+Python.
 
 ## Format
 

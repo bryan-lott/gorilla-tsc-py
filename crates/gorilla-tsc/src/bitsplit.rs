@@ -151,14 +151,14 @@ impl<W: Word> BlockCodec<W> for BitSplit<W> {
         }
         let left_bits = W::BITS - r;
         let d = usize::try_from(input.read(D_BITS)?).unwrap_or(usize::MAX);
-        let mut dict = Vec::with_capacity(d);
+        let mut dict = Vec::with_capacity(input.capacity_hint(d));
         for _ in 0..d {
             dict.push(input.read(left_bits)?);
         }
         let depth = bit_len(d);
         let contexts = if d < CONTEXT_MAX { d + 1 } else { 1 };
         let mut probs = tree(depth, contexts);
-        let mut lefts = Vec::with_capacity(n);
+        let mut lefts = Vec::with_capacity(input.capacity_hint(n));
         {
             let mut rc = RangeDecoder::new(input)?;
             let mut prev = 0usize;

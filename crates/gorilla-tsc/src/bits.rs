@@ -106,6 +106,16 @@ impl<'a> BitReader<'a> {
         self.bytes.len() * 8 - self.pos
     }
 
+    /// A `Vec` capacity for `n` decoded items that the remaining input can
+    /// back: at most one item per remaining bit. A header may claim any
+    /// count, so reserving `n` outright lets a few bytes demand gigabytes.
+    /// (Items can cost less than a bit, so this is only a hint; vectors
+    /// still grow as items are actually decoded.)
+    #[must_use]
+    pub fn capacity_hint(&self, n: usize) -> usize {
+        n.min(self.remaining())
+    }
+
     /// Read a single bit as a bool.
     ///
     /// # Errors
@@ -119,6 +129,17 @@ impl<'a> BitReader<'a> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn capacity_hint_is_bounded_by_remaining_bits() {
+        let bytes = [0u8; 3];
+        let mut r = BitReader::new(&bytes);
+        assert_eq!(r.capacity_hint(5), 5);
+        assert_eq!(r.capacity_hint(1 << 40), 24);
+        r.read(20).unwrap();
+        assert_eq!(r.capacity_hint(usize::MAX), 4);
+        assert_eq!(r.capacity_hint(0), 0);
+    }
 
     #[test]
     fn msb_first_layout() {

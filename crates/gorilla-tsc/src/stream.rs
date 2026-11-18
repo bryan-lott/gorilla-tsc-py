@@ -844,9 +844,8 @@ pub fn decode<T: Sample>(bytes: &[u8]) -> Result<Vec<T>, DecodeError> {
     }
     let interval = u64::from(header.config.checkpoint_interval.get());
     let mut input = BitReader::new(payload);
-    // Every item costs at least one bit, so a lying count cannot force a huge allocation.
-    let cap = usize::try_from(header.count).unwrap_or(usize::MAX).min(payload.len() * 8);
-    let mut words = Vec::with_capacity(cap);
+    // The header's count is untrusted: reserve only what the payload can back.
+    let mut words = Vec::with_capacity(input.capacity_hint(usize::try_from(header.count).unwrap_or(usize::MAX)));
     let mut remaining = header.count;
     while remaining > 0 {
         let n = remaining.min(interval);

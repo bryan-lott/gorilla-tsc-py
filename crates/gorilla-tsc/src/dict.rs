@@ -76,7 +76,7 @@ impl IndexCoder {
     }
 
     fn decode(self, n: usize, d: usize, input: &mut BitReader<'_>) -> Result<Vec<u64>, DecodeError> {
-        let mut seq = Vec::with_capacity(n);
+        let mut seq = Vec::with_capacity(input.capacity_hint(n));
         match self {
             Self::Fixed => {
                 let width = bit_len(d - 1);
@@ -203,7 +203,7 @@ impl<T: Sample> BlockCodec<T::Word> for Dictionary<T> {
         if d > n {
             return Err(DecodeError::Corrupt("dictionary larger than block"));
         }
-        let mut dict = Vec::with_capacity(d);
+        let mut dict = Vec::with_capacity(input.capacity_hint(d));
         if input.read_bit()? {
             DeltaRice.decode_block(d, input, &mut dict)?;
         } else {

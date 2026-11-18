@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 
 [dev-dependencies]
+peak_alloc = "0.3"
 proptest = "1.12"
 
 [lints]

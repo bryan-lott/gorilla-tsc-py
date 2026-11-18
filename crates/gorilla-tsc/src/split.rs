@@ -150,12 +150,12 @@ fn decode<T: Sample>(n: usize, input: &mut BitReader<'_>, out: &mut Vec<T::Word>
     let (k, exceptions) = read_scaled_header::<T>(n, input)?;
     let split_at =
         Split::from_code(input.read(SPLIT_BITS)?).ok_or(DecodeError::Corrupt("split exponent out of range"))?;
-    let mut first: Vec<u64> = Vec::with_capacity(n);
+    let mut first: Vec<u64> = Vec::with_capacity(input.capacity_hint(n));
     DeltaRice.decode_block(n, input, &mut first)?;
     let ints = match split_at {
         Split::None => first,
         Split::At(j) => {
-            let mut r: Vec<u64> = Vec::with_capacity(n);
+            let mut r: Vec<u64> = Vec::with_capacity(input.capacity_hint(n));
             DeltaRice.decode_block(n, input, &mut r)?;
             join(&first, &r, Split::modulus(j))
         }
