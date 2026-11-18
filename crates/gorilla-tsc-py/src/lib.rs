@@ -579,7 +579,8 @@ fn inspect<'py>(py: Python<'py>, data: &Bound<'py, PyAny>) -> Result<Bound<'py, 
 }
 
 #[pymodule]
-fn _native(m: &Bound<'_, PyModule>) -> Result<(), PyErr> {
+#[pyo3(name = "_native")]
+fn native(m: &Bound<'_, PyModule>) -> Result<(), PyErr> {
     m.add("DecodeError", m.py().get_type::<DecodeError>())?;
     m.add_class::<TimestampsEncoder>()?;
     m.add_class::<TimestampsDecoder>()?;
