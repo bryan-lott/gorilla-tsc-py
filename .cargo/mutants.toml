@@ -26,6 +26,8 @@ exclude_re = [
     # exceptions alone cost >= the best also pays a header, so cannot win.
     "decimal.rs.*replace > with (==|>=) in best_encoding",
     "decimal.rs.*replace \\* with [+/] in best_encoding",
+    # The one-thread / single-block shortcut: the threaded path writes the same bytes.
+    "stream.rs.*replace (== with !=|< with <=) in encode_blocks",
     # Vec capacity hint only; never affects output.
     "stream.rs.*replace \\* with [+/] in decode",
 ]

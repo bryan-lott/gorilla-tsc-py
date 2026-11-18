@@ -595,24 +595,132 @@ impl Header {
 pub struct Encoder<T: Sample> {
     config: Config,
     out: BitWriter,
+    /// Items not yet encoded: fewer than `batch` blocks.
     block: Vec<T::Word>,
     count: u64,
+    threads: Threads,
+}
+
+/// How many threads an encoder may use. Blocks are independent, so the
+/// output never depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Threads(core::num::NonZeroUsize);
+
+impl Threads {
+    /// One thread: encode each block as soon as it is complete.
+    pub const ONE: Self = Self(core::num::NonZeroUsize::MIN);
+
+    /// Exactly `n` threads (`None` for zero).
+    #[must_use]
+    pub fn new(n: usize) -> Option<Self> {
+        core::num::NonZeroUsize::new(n).map(Self)
+    }
+
+    /// As many threads as the machine offers ([`std::thread::available_parallelism`], else one).
+    #[must_use]
+    pub fn available() -> Self {
+        std::thread::available_parallelism().map_or(Self::ONE, Self)
+    }
+
+    /// The thread count.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl From<core::num::NonZeroUsize> for Threads {
+    fn from(n: core::num::NonZeroUsize) -> Self {
+        Self(n)
+    }
+}
+
+/// Blocks buffered per thread before a parallel encoder flushes, so each
+/// thread gets enough work to outweigh starting it.
+const BLOCKS_PER_THREAD: usize = 8;
+
+/// Encode `blocks` (consecutive blocks of `items`) across up to `threads` threads, in order.
+fn encode_blocks<T: Sample>(mode: Mode, items: &[T::Word], interval: usize, threads: Threads, out: &mut BitWriter) {
+    let blocks: Vec<&[T::Word]> = items.chunks(interval).collect();
+    if threads.get() == 1 || blocks.len() < 2 {
+        for b in blocks {
+            encode_block::<T>(mode, b, out);
+        }
+        return;
+    }
+    let per_thread = blocks.len().div_ceil(threads.get());
+    let parts: Vec<BitWriter> = std::thread::scope(|s| {
+        let handles: Vec<_> = blocks
+            .chunks(per_thread)
+            .map(|run| {
+                s.spawn(move || {
+                    let mut w = BitWriter::new();
+                    for b in run {
+                        encode_block::<T>(mode, b, &mut w);
+                    }
+                    w
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    });
+    for p in &parts {
+        out.append(p);
+    }
 }
 
 impl<T: Sample> Encoder<T> {
-    /// New empty stream.
+    /// New empty stream, encoded on the calling thread.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self { config, out: BitWriter::new(), block: Vec::new(), count: 0 }
+        Self::with_threads(config, Threads::ONE)
+    }
+
+    /// New empty stream whose blocks are encoded across `threads` threads,
+    /// in batches of [`BLOCKS_PER_THREAD`] blocks per thread. The bytes are
+    /// identical to [`Encoder::new`]'s.
+    #[must_use]
+    pub fn with_threads(config: Config, threads: Threads) -> Self {
+        Self { config, out: BitWriter::new(), block: Vec::new(), count: 0, threads }
+    }
+
+    fn interval(&self) -> usize {
+        self.config.checkpoint_interval.get() as usize
+    }
+
+    /// Items buffered before a flush: one block on one thread, else a batch.
+    fn batch_items(&self) -> usize {
+        let blocks = if self.threads.get() == 1 { 1 } else { self.threads.get() * BLOCKS_PER_THREAD };
+        self.interval() * blocks
+    }
+
+    fn flush(&mut self) {
+        let interval = self.interval();
+        encode_blocks::<T>(self.config.mode, &self.block, interval, self.threads, &mut self.out);
+        self.block.clear();
     }
 
     /// Append one item.
     pub fn push(&mut self, item: T) {
         self.block.push(item.to_word());
         self.count += 1;
-        if self.block.len() == self.config.checkpoint_interval.get() as usize {
-            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
-            self.block.clear();
+        if self.block.len() == self.batch_items() {
+            self.flush();
+        }
+    }
+
+    /// Append every item of `items` (the same as pushing each).
+    pub fn extend(&mut self, items: &[T]) {
+        let batch = self.batch_items();
+        let mut rest = items;
+        while !rest.is_empty() {
+            let take = (batch - self.block.len()).min(rest.len());
+            self.block.extend(rest[..take].iter().map(|x| x.to_word()));
+            self.count += take as u64;
+            rest = &rest[take..];
+            if self.block.len() == batch {
+                self.flush();
+            }
         }
     }
 
@@ -632,18 +740,15 @@ impl<T: Sample> Encoder<T> {
     #[must_use]
     pub fn payload_bits(&self) -> usize {
         let mut pending = BitWriter::new();
-        if !self.block.is_empty() {
-            encode_block::<T>(self.config.mode, &self.block, &mut pending);
-        }
+        encode_blocks::<T>(self.config.mode, &self.block, self.interval(), self.threads, &mut pending);
         self.out.bit_len() + pending.bit_len()
     }
 
     /// Header followed by the payload.
     #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
-        if !self.block.is_empty() {
-            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
-        }
+        let interval = self.interval();
+        encode_blocks::<T>(self.config.mode, &self.block, interval, self.threads, &mut self.out);
         let header = Header { sample_type: T::TYPE, config: self.config, count: self.count };
         let mut bytes = Vec::with_capacity(16 + self.out.bit_len() / 8);
         header.write(&mut bytes);
@@ -665,31 +770,10 @@ pub fn encode<T: Sample>(items: &[T], config: Config) -> Vec<u8> {
 /// Compress `items` using up to `threads` threads. Blocks are independent, so
 /// the output is byte-for-byte identical to [`encode`].
 #[must_use]
-pub fn encode_parallel<T: Sample>(items: &[T], config: Config, threads: core::num::NonZeroUsize) -> Vec<u8> {
-    let interval = config.checkpoint_interval.get() as usize;
-    let blocks: Vec<&[T]> = items.chunks(interval).collect();
-    let per_thread = blocks.len().div_ceil(threads.get()).max(1);
-    let encode_run = |run: &[&[T]]| {
-        let mut out = BitWriter::new();
-        for block in run {
-            let words: Vec<T::Word> = block.iter().map(|x| x.to_word()).collect();
-            encode_block::<T>(config.mode, &words, &mut out);
-        }
-        out
-    };
-    let parts: Vec<BitWriter> = std::thread::scope(|s| {
-        let handles: Vec<_> = blocks.chunks(per_thread).map(|run| s.spawn(move || encode_run(run))).collect();
-        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
-    });
-    let mut payload = BitWriter::new();
-    for p in &parts {
-        payload.append(p);
-    }
-    let header = Header { sample_type: T::TYPE, config, count: items.len() as u64 };
-    let mut bytes = Vec::with_capacity(16 + payload.bit_len() / 8);
-    header.write(&mut bytes);
-    bytes.extend(payload.finish());
-    bytes
+pub fn encode_parallel<T: Sample>(items: &[T], config: Config, threads: impl Into<Threads>) -> Vec<u8> {
+    let mut e = Encoder::with_threads(config, threads.into());
+    e.extend(items);
+    e.finish()
 }
 
 /// Parse the header of `bytes`, returning it and the payload.
@@ -1047,6 +1131,54 @@ mod tests {
     }
 
     #[test]
+    fn thread_counts() {
+        assert_eq!(Threads::new(0), None);
+        assert_eq!(Threads::new(3).map(Threads::get), Some(3));
+        assert_eq!(Threads::ONE.get(), 1);
+        let all = Threads::available().get();
+        assert_eq!(Some(all), std::thread::available_parallelism().ok().map(core::num::NonZeroUsize::get));
+    }
+
+    #[test]
+    fn threaded_streaming_matches_sequential() {
+        let v: Vec<f64> = (0..5_003).map(|i| f64::from(i % 311) / 10.0).collect();
+        let c = cfg(Mode::Auto, 50);
+        let expected = encode(&v, c);
+        for t in [1, 2, 3, 7] {
+            let mut e = Encoder::with_threads(c, Threads::new(t).unwrap());
+            for (i, &x) in v.iter().enumerate() {
+                e.push(x);
+                if i % 997 == 0 {
+                    let mut seq = Encoder::new(c);
+                    seq.extend(&v[..=i]);
+                    assert_eq!(e.payload_bits(), seq.payload_bits(), "threads = {t}, after {i}");
+                }
+            }
+            assert_eq!(e.len(), 5_003);
+            assert_eq!(e.finish(), expected, "threads = {t}");
+        }
+    }
+
+    #[test]
+    fn threaded_encoder_buffers_a_batch_then_flushes() {
+        let c = cfg(Mode::Fixed(Codec::Raw), 10);
+        let mut e = Encoder::<i64>::with_threads(c, Threads::new(2).unwrap());
+        assert_eq!(e.batch_items(), 10 * 2 * BLOCKS_PER_THREAD);
+        e.extend(&vec![7; 10 * 2 * BLOCKS_PER_THREAD - 1]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (159, 0));
+        e.push(7);
+        assert_eq!((e.block.len(), e.out.bit_len()), (0, 160 * 64));
+        assert_eq!(Encoder::<i64>::new(c).batch_items(), 10);
+        // A large extend flushes batch by batch instead of buffering everything.
+        let mut e = Encoder::<i64>::with_threads(c, Threads::new(2).unwrap());
+        e.extend(&vec![7; 3 * 160 + 5]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (5, 3 * 160 * 64));
+        // ... also when it starts with a partly filled batch.
+        e.extend(&vec![7; 2 * 160]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (5, 5 * 160 * 64));
+    }
+
+    #[test]
     fn auto_candidates_by_sample_type() {
         // Measured on 25 benchmark datasets: these lose nothing against all codecs.
         assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw]);
@@ -1136,6 +1268,11 @@ mod tests {
         fn parallel_matches_sequential(v in prop::collection::vec(any::<i64>(), 0..300), k in 1u32..40, t in 1usize..6, m in 0usize..MODES.len()) {
             let c = cfg(MODES[m], k);
             prop_assert_eq!(encode_parallel(&v, c, core::num::NonZeroUsize::new(t).unwrap()), encode(&v, c));
+            let mut e = Encoder::with_threads(c, Threads::new(t).unwrap());
+            for &x in &v {
+                e.push(x);
+            }
+            prop_assert_eq!(e.finish(), encode(&v, c));
         }
 
         #[test]

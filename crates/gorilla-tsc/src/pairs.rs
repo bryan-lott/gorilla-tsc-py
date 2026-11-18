@@ -1,6 +1,6 @@
 //! Timestamp/value pairs and compression estimates.
 
-use crate::{Config, DecodeError, Encoder, Sample, decode, encode};
+use crate::{Config, DecodeError, Encoder, Sample, Threads, decode, encode_parallel};
 
 /// Compress `(timestamp, value)` pairs as two streams, stable-sorted by timestamp.
 ///
@@ -11,10 +11,22 @@ pub fn encode_pairs<T: Sample + Ord, V: Sample>(
     timestamps: Config,
     values: Config,
 ) -> (Vec<u8>, Vec<u8>) {
+    encode_pairs_with(pairs, timestamps, values, Threads::ONE)
+}
+
+/// [`encode_pairs`] with each stream's blocks encoded across `threads`
+/// threads; the bytes are identical.
+#[must_use]
+pub fn encode_pairs_with<T: Sample + Ord, V: Sample>(
+    pairs: &[(T, V)],
+    timestamps: Config,
+    values: Config,
+    threads: Threads,
+) -> (Vec<u8>, Vec<u8>) {
     let mut sorted = pairs.to_vec();
     sorted.sort_by_key(|p| p.0); // stable
     let (ts, vals): (Vec<T>, Vec<V>) = sorted.into_iter().unzip();
-    (encode(&ts, timestamps), encode(&vals, values))
+    (encode_parallel(&ts, timestamps, threads), encode_parallel(&vals, values, threads))
 }
 
 /// Inverse of [`encode_pairs`].
@@ -67,6 +79,7 @@ pub fn estimate<T: Sample>(data: &[T], config: Config) -> Estimate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encode;
     use crate::Codec;
     use crate::CheckpointInterval;
 

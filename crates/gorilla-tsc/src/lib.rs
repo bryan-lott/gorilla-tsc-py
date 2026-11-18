@@ -43,10 +43,10 @@ pub use coder::{BucketCoder, ResidualCoder, XorCoder};
 pub use error::DecodeError;
 pub use range::{Prob, RangeDecoder, RangeEncoder};
 pub use rice::{RiceBlock, RiceParams, Transform};
-pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, estimate};
+pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, encode_pairs_with, estimate};
 pub use scheme::{DodScheme, DodXorScheme, Op, Scheme, Single, Stacked, Sub, Xor, XorDodScheme, XorScheme};
 pub use stream::{
-    CheckpointInterval, Codec, Config, ConfigError, Decoded, Encoder, Header, MAGIC, Mode, Sample, SampleType, VERSION,
+    CheckpointInterval, Codec, Config, ConfigError, Decoded, Encoder, Header, MAGIC, Mode, Sample, SampleType, Threads, VERSION,
     decode, decode_any, encode, encode_parallel, read_header,
 };
 pub use word::Word;

@@ -351,8 +351,8 @@ def test_encode_infers_nothing_and_validates():
         encode([1.0], precision="int64")
     with pytest.raises(ValueError, match="^precision must be one of 'int32', 'int64', 'f32', 'f64' \\(got 'f16'\\)$"):
         encode([1.0], precision="f16")
-    with pytest.raises(ValueError, match="^threads must be at least 1$"):
-        encode([1.0], threads=0)
+    with pytest.raises(ValueError, match=r"^threads must be 0 \(all cores\) or more \(got -1\)$"):
+        encode([1.0], threads=-1)
 
 
 def test_decimal_and_auto_compress_decimal_data_far_better_than_xor():
@@ -405,3 +405,24 @@ def test_learn_profile_validates():
         learn_profile([1.0], checkpoint_interval=0)
     assert learn_profile([]) == "decimal:0:first:rice"
     assert learn_profile([], precision="int32") == "delta:first:rice"
+
+
+@pytest.mark.parametrize("threads", [0, 1, 3])
+def test_encoder_classes_take_threads_and_match_single_threaded(threads):
+    vals = [round(i * 0.37 % 50, 2) for i in range(20_011)]
+    ts = [1_700_000_000_000 + 1000 * i + i % 7 for i in range(20_011)]
+    single = ValuesEncoder().encode_all(vals)
+    enc = ValuesEncoder(threads=threads)
+    for v in vals[:5000]:
+        enc.encode_next(v)
+    assert enc.encode_all(vals[5000:]) == single
+    assert TimestampsEncoder(threads=threads).encode_all(ts) == TimestampsEncoder().encode_all(ts)
+    pairs = list(zip(ts, vals))
+    assert PairsEncoder(threads=threads).encode_all(pairs) == PairsEncoder().encode_all(pairs)
+    assert encode(vals, threads=threads) == single["encoded"]
+
+
+def test_encoder_classes_validate_threads():
+    for cls in (ValuesEncoder, TimestampsEncoder, PairsEncoder):
+        with pytest.raises(ValueError, match=r"threads must be 0 \(all cores\) or more"):
+            cls(threads=-2)
