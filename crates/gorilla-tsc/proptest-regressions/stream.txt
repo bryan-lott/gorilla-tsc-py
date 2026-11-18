@@ -8,3 +8,7 @@ cc 7f7ec3ab40dfb9ae6702c1b6322f8741d545f9a40fc17cac08de6e182ff19dce # shrinks to
 cc 62932bb73dde4dffe1e1e37fabb7cc2f356214d8212daaf65a3a3f1585bb944c # shrinks to v = [0], m = 5, k = 1
 cc 08c39c9fd428348c5e633532d0651d1ad254ebb02eef0586dab09bc4f8520628 # shrinks to v = [0.0], m = 5, k = 1
 cc 9b85de491beaf8328dd9ee313092e1b69ecca4b313e7783c201d215e79e0e386 # shrinks to v = [0.0], m = 6, k = 1
+cc 9f3c0a405bb61cf122cd476cb4677677833335ec78bc4ab0246cb32e9f8a9ce9 # shrinks to a = [0.0], b = [0.0], m = 6
+cc ebc14c92a7a911241cdc76c50b5edab5bdcf428a65233d857cf489bfbd05d9f5 # shrinks to v = [0], m = 6, k = 1
+cc d557b4422562aa0aeff4f5b4f9e757a9053c1792173a1230a3839d02a540a880 # shrinks to v = [0], k = 1, t = 1, m = 6
+cc 1d699fdde8910c8a6d7897709aa1b862424b7e2815f4279d3f537faafd8eef0b # shrinks to v = [0.0], m = 6, k = 1

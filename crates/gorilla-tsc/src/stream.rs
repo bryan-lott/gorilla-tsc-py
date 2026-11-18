@@ -8,9 +8,14 @@ use core::fmt;
 use core::num::NonZeroU32;
 use core::str::FromStr;
 
+use crate::bitsplit::BitSplit;
 use crate::block::{BlockCodec, PerItem};
 use crate::decimal::DecimalRice;
 use crate::delta::DeltaRice;
+use crate::dict::Dictionary;
+use crate::decimal::{best_encoding, scale};
+use crate::split::{DecimalSplit, encode_scaled};
+use crate::profile::Profile;
 use crate::scheme::{DodScheme, DodXorScheme, XorDodScheme, XorScheme};
 use crate::{BitReader, BitWriter, DecodeError, Word};
 
@@ -48,13 +53,16 @@ pub trait Sample: Copy + Send + Sync + fmt::Debug + sealed::Sealed + 'static {
     fn from_word(w: Self::Word) -> Self;
     /// Largest decimal exponent worth trying (0 for integers).
     const MAX_SCALE: i32;
-    /// Modes [`Mode::Auto`] tries for this type.
-    const AUTO: &'static [Mode];
+    /// Codecs [`Mode::Auto`] tries for this type.
+    const AUTO: &'static [Codec];
     /// `Some(n)` iff [`Sample::from_scaled`]`(n, k)` reproduces `self` bit for bit.
     /// For floats `n` is `self * 10^k` rounded; integers only scale at `k = 0`.
     fn to_scaled(self, k: i32) -> Option<i64>;
     /// `n / 10^k` (or `n * 10^-k`) as `Self`.
     fn from_scaled(n: i64, k: i32) -> Self;
+    /// A key in numeric order (floats: IEEE total order, so `-0.0 < 0.0` and
+    /// NaNs sort by payload), distinct for distinct words.
+    fn order_key(self) -> i64;
 }
 
 /// Exact powers of ten representable in an `f64` (10^0 ..= 10^22).
@@ -87,13 +95,13 @@ fn unscale_f64(n: i64, k: i32) -> f64 {
 }
 
 macro_rules! impl_sample {
-    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $auto:expr, $scale:expr, $unscale:expr) => {
+    ($t:ty, $w:ty, $tag:ident, $to:expr, $from:expr, $max:expr, $auto:expr, $scale:expr, $unscale:expr, $key:expr) => {
         impl sealed::Sealed for $t {}
         impl Sample for $t {
             type Word = $w;
             const TYPE: SampleType = SampleType::$tag;
             const MAX_SCALE: i32 = $max;
-            const AUTO: &'static [Mode] = $auto;
+            const AUTO: &'static [Codec] = $auto;
             fn to_scaled(self, k: i32) -> Option<i64> {
                 let f: fn($t, i32) -> Option<i64> = $scale;
                 f(self, k)
@@ -110,22 +118,50 @@ macro_rules! impl_sample {
                 let f: fn($w) -> $t = $from;
                 f(w)
             }
+            fn order_key(self) -> i64 {
+                let f: fn($t) -> i64 = $key;
+                f(self)
+            }
         }
     };
 }
 
-/// Decimal on integers is `Delta` plus a header, so it can never win.
-const INT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta];
-/// Delta on raw float bits essentially never beats `Decimal` (measured on the
-/// benchmark datasets: it won only constant runs, by the decimal header).
-const FLOAT_AUTO: &[Mode] = &[Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal];
+/// What [`Mode::Auto`] tries, per element family. On the 25 benchmark
+/// datasets (Elf, Chimp, timestamps) these give the same size as trying every
+/// codec: the stacked modes never win, `Decimal` on integers is `Delta` plus a
+/// header, and `Delta` on raw float bits only ever won constant runs. `Raw`
+/// caps every block at its uncompressed size.
+const INT_AUTO: &[Codec] = &[Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw];
+const FLOAT_AUTO: &[Codec] =
+    &[Codec::Xor, Codec::Decimal, Codec::DecimalSplit, Codec::Dictionary, Codec::BitSplit, Codec::Raw];
 
 impl_sample!(i32, u32, I32, i32::cast_unsigned, u32::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default());
+    |v, k| (k == 0).then_some(i64::from(v)), |n, _| i32::try_from(n).unwrap_or_default(), i64::from);
 impl_sample!(i64, u64, I64, i64::cast_unsigned, u64::cast_signed, 0, INT_AUTO,
-    |v, k| (k == 0).then_some(v), |n, _| n);
-impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32);
-impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64);
+    |v, k| (k == 0).then_some(v), |n, _| n, |v| v);
+impl_sample!(f32, u32, F32, f32::to_bits, f32::from_bits, 10, FLOAT_AUTO, scale_f32, unscale_f32,
+    |v| i64::from(total_order(v.to_bits().cast_signed())));
+impl_sample!(f64, u64, F64, f64::to_bits, f64::from_bits, 18, FLOAT_AUTO, scale_f64, unscale_f64,
+    |v| total_order(v.to_bits().cast_signed()));
+
+/// IEEE 754 total order as a signed integer order: negative floats have their
+/// magnitude bits flipped so they sort descending in magnitude (the trick
+/// behind `f64::total_cmp`).
+macro_rules! total_order_fn {
+    ($($t:ty),*) => {
+        trait TotalOrder { fn total(self) -> Self; }
+        $(impl TotalOrder for $t {
+            fn total(self) -> Self {
+                self ^ (((self >> (<$t>::BITS - 1)).cast_unsigned() >> 1).cast_signed())
+            }
+        })*
+    };
+}
+total_order_fn!(i32, i64);
+
+fn total_order<I: TotalOrder>(bits: I) -> I {
+    bits.total()
+}
 
 fn scale_f32(v: f32, k: i32) -> Option<i64> {
     scaled_int(f64::from(v), k).filter(|&n| unscale_f32(n, k).to_bits() == v.to_bits())
@@ -136,9 +172,10 @@ fn unscale_f32(n: i64, k: i32) -> f32 {
     unscale_f64(n, k) as f32
 }
 
-/// How consecutive items are predicted. See [`crate::scheme`].
+/// A per-block compression method. Every block of a stream is coded by
+/// exactly one codec; [`Mode::Auto`] picks one per block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Mode {
+pub enum Codec {
     /// XOR with the previous item (Gorilla values).
     Xor,
     /// Delta-of-delta (Gorilla timestamps).
@@ -147,13 +184,39 @@ pub enum Mode {
     XorDod,
     /// XOR, then difference of consecutive XORs.
     DodXor,
-    /// First or second differences (chosen per block), Rice coded.
+    /// First or second differences (chosen per block), Rice or adaptively coded.
     Delta,
     /// Floats scaled to integers by a per-block power of ten, then delta coded.
     /// Values that do not scale exactly are stored verbatim. Integers: as `Delta`.
     Decimal,
-    /// Per block, whichever other mode is smallest (3-bit selector per block).
+    /// Every word verbatim: the bound no block ever needs to exceed.
+    Raw,
+    /// The block's distinct values in numeric order, then an index per item.
+    Dictionary,
+    /// Decimal scaling, then each integer as a reading plus a remainder
+    /// (`x = q * 10^j + r`), for readings carrying a low-precision offset.
+    DecimalSplit,
+    /// High bits dictionary coded, low bits raw (ALP-RD style), for
+    /// high-precision floats with random low bits.
+    BitSplit,
+}
+
+/// How a stream chooses codecs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Mode {
+    /// The same codec for every block.
+    Fixed(Codec),
+    /// Per block, whichever of [`Sample::AUTO`] is smallest (a 4-bit selector per block).
     Auto,
+    /// A locked [`Profile`]: no per-block search. The stream records the
+    /// profile's codec, so it reads back as [`Mode::Fixed`].
+    Profile(Profile),
+}
+
+impl From<Codec> for Mode {
+    fn from(c: Codec) -> Self {
+        Self::Fixed(c)
+    }
 }
 
 /// Items per independently decodable block. Never zero.
@@ -215,7 +278,7 @@ impl SampleType {
 }
 
 /// Parse `s` as one of `all` by name, or explain what was expected.
-fn parse_named<T: Copy>(s: &str, what: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, ConfigError> {
+pub(crate) fn parse_named<T: Copy>(s: &str, what: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, ConfigError> {
     all.iter().copied().find(|&t| name(t) == s).ok_or_else(|| {
         let valid: Vec<String> = all.iter().map(|&t| format!("'{}'", name(t))).collect();
         ConfigError(format!("{what} must be one of {} (got '{s}')", valid.join(", ")))
@@ -229,7 +292,7 @@ impl FromStr for SampleType {
     }
 }
 
-impl Mode {
+impl Codec {
     /// Name used in configuration strings.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -240,18 +303,93 @@ impl Mode {
             Self::DodXor => "dod_xor",
             Self::Delta => "delta",
             Self::Decimal => "decimal",
-            Self::Auto => "auto",
+            Self::Raw => "raw",
+            Self::Dictionary => "dictionary",
+            Self::DecimalSplit => "decimal_split",
+            Self::BitSplit => "bit_split",
         }
     }
-    const ALL: [Self; 7] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal, Self::Auto];
-    /// Modes [`Mode::Auto`] chooses between, indexed by its selector.
-    const CONCRETE: [Self; 6] = [Self::Xor, Self::Dod, Self::XorDod, Self::DodXor, Self::Delta, Self::Decimal];
+
+    /// Every codec.
+    pub const ALL: [Self; 10] = [
+        Self::Xor,
+        Self::Dod,
+        Self::XorDod,
+        Self::DodXor,
+        Self::Delta,
+        Self::Decimal,
+        Self::Raw,
+        Self::Dictionary,
+        Self::DecimalSplit,
+        Self::BitSplit,
+    ];
+
+    /// Code in the header's mode field and in [`Mode::Auto`]'s block selector.
+    const fn code(self) -> u8 {
+        match self {
+            Self::Xor => 0,
+            Self::Dod => 1,
+            Self::XorDod => 2,
+            Self::DodXor => 3,
+            Self::Delta => 4,
+            Self::Decimal => 5,
+            Self::Raw => 7,
+            Self::Dictionary => 8,
+            Self::DecimalSplit => 9,
+            Self::BitSplit => 10,
+        }
+    }
+
+    fn from_code(code: u64) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| u64::from(c.code()) == code)
+    }
+}
+
+impl Mode {
+    /// Name used in configuration strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Fixed(c) => c.name(),
+            Self::Auto => "auto",
+            Self::Profile(p) => p.codec().name(),
+        }
+    }
+
+    /// Header code of [`Mode::Auto`]; never a codec's code.
+    const AUTO_CODE: u8 = 6;
+
+    const fn code(self) -> u8 {
+        match self {
+            Self::Fixed(c) => c.code(),
+            Self::Auto => Self::AUTO_CODE,
+            Self::Profile(p) => p.codec().code(),
+        }
+    }
+
+    fn from_code(code: u8) -> Option<Self> {
+        if code == Self::AUTO_CODE { Some(Self::Auto) } else { Codec::from_code(u64::from(code)).map(Self::Fixed) }
+    }
+
+    /// Every mode: each codec, then [`Mode::Auto`].
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        Codec::ALL.into_iter().map(Self::Fixed).chain([Self::Auto]).collect()
+    }
+}
+
+impl FromStr for Codec {
+    type Err = ConfigError;
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_named(s, "codec", &Self::ALL, Self::name)
+    }
 }
 
 impl FromStr for Mode {
     type Err = ConfigError;
+    /// A mode name, or a [`Profile`] string (anything containing `:`).
     fn from_str(s: &str) -> Result<Self, ConfigError> {
-        parse_named(s, "mode", &Self::ALL, Self::name)
+        if s.contains(':') { s.parse().map(Self::Profile) } else { parse_named(s, "mode", &Self::all(), Self::name) }
     }
 }
 
@@ -293,8 +431,8 @@ impl Default for CheckpointInterval {
 impl Config {
     /// Settings with the default checkpoint interval.
     #[must_use]
-    pub const fn new(mode: Mode) -> Self {
-        Self { mode, checkpoint_interval: CheckpointInterval::DEFAULT }
+    pub fn new(mode: impl Into<Mode>) -> Self {
+        Self { mode: mode.into(), checkpoint_interval: CheckpointInterval::DEFAULT }
     }
 
     /// Replace the checkpoint interval.
@@ -304,57 +442,105 @@ impl Config {
     }
 }
 
-/// Encode one block with the codec for `mode`.
-fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
+/// Encode one block with `codec`.
+pub(crate) fn encode_codec<T: Sample>(codec: Codec, items: &[T::Word], out: &mut BitWriter) {
     type W<T> = <T as Sample>::Word;
+    match codec {
+        Codec::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
+        Codec::Dod => PerItem::<DodScheme<W<T>>>::default().encode_block(items, out),
+        Codec::XorDod => PerItem::<XorDodScheme<W<T>>>::default().encode_block(items, out),
+        Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
+        Codec::Delta => DeltaRice.encode_block(items, out),
+        Codec::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Codec::Dictionary => Dictionary::<T>::default().encode_block(items, out),
+        Codec::DecimalSplit => DecimalSplit::<T>::default().encode_block(items, out),
+        Codec::BitSplit => BitSplit::<W<T>>::default().encode_block(items, out),
+        Codec::Raw => {
+            for &w in items {
+                out.write(w.to_u64(), W::<T>::BITS);
+            }
+        }
+    }
+}
+
+/// Encode one block as `mode` says.
+fn encode_block<T: Sample>(mode: Mode, items: &[T::Word], out: &mut BitWriter) {
     match mode {
-        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().encode_block(items, out),
-        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().encode_block(items, out),
-        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().encode_block(items, out),
-        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().encode_block(items, out),
-        Mode::Delta => DeltaRice.encode_block(items, out),
-        Mode::Decimal => DecimalRice::<T>::default().encode_block(items, out),
+        Mode::Fixed(codec) => encode_codec::<T>(codec, items, out),
+        Mode::Profile(p) => p.encode_block::<T>(items, out),
         Mode::Auto => {
-            let (mode, best) = T::AUTO
+            // Decimal and DecimalSplit share the (costly) exponent search.
+            let mut decimal: Option<(i32, BitWriter)> = None;
+            let mut decimal_trial = || decimal.get_or_insert_with(|| best_encoding::<T>(items)).clone();
+            let (codec, best) = T::AUTO
                 .iter()
-                .map(|&m| {
-                    let mut w = BitWriter::new();
-                    encode_block::<T>(m, items, &mut w);
-                    (m, w)
+                .map(|&c| {
+                    let w = match c {
+                        Codec::Decimal => decimal_trial().1,
+                        Codec::DecimalSplit => {
+                            let mut w = BitWriter::new();
+                            encode_scaled(&scale::<T>(items, decimal_trial().0), &mut w);
+                            w
+                        }
+                        _ => {
+                            let mut w = BitWriter::new();
+                            encode_codec::<T>(c, items, &mut w);
+                            w
+                        }
+                    };
+                    (c, w)
                 })
                 .min_by_key(|(_, w)| w.bit_len())
-                .unwrap_or((Mode::Xor, BitWriter::new()));
-            let index = Mode::CONCRETE.iter().position(|&m| m == mode).unwrap_or(0);
-            out.write(index as u64, AUTO_SELECTOR_BITS);
+                .unwrap_or((Codec::Xor, BitWriter::new()));
+            out.write(u64::from(codec.code()), AUTO_SELECTOR_BITS);
             out.append(&best);
         }
     }
 }
 
 /// Width of [`Mode::Auto`]'s per-block mode selector.
-const AUTO_SELECTOR_BITS: u32 = 3;
+const AUTO_SELECTOR_BITS: u32 = 4;
 
-/// Decode one block of `n` items with the codec for `mode`.
+/// Decode one block of `n` items coded with `codec`.
+fn decode_codec<T: Sample>(
+    codec: Codec,
+    n: usize,
+    input: &mut BitReader<'_>,
+    out: &mut Vec<T::Word>,
+) -> Result<(), DecodeError> {
+    type W<T> = <T as Sample>::Word;
+    match codec {
+        Codec::Xor => PerItem::<XorScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::Dod => PerItem::<DodScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::XorDod => PerItem::<XorDodScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
+        Codec::Delta => DeltaRice.decode_block(n, input, out),
+        Codec::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
+        Codec::Dictionary => Dictionary::<T>::default().decode_block(n, input, out),
+        Codec::DecimalSplit => DecimalSplit::<T>::default().decode_block(n, input, out),
+        Codec::BitSplit => BitSplit::<W<T>>::default().decode_block(n, input, out),
+        Codec::Raw => {
+            for _ in 0..n {
+                out.push(W::<T>::from_u64_truncate(input.read(W::<T>::BITS)?));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Decode one block of `n` items written as `mode` says.
 fn decode_block<T: Sample>(
     mode: Mode,
     n: usize,
     input: &mut BitReader<'_>,
     out: &mut Vec<T::Word>,
 ) -> Result<(), DecodeError> {
-    type W<T> = <T as Sample>::Word;
-    match mode {
-        Mode::Xor => PerItem::<XorScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::Dod => PerItem::<DodScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::XorDod => PerItem::<XorDodScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::DodXor => PerItem::<DodXorScheme<W<T>>>::default().decode_block(n, input, out),
-        Mode::Delta => DeltaRice.decode_block(n, input, out),
-        Mode::Decimal => DecimalRice::<T>::default().decode_block(n, input, out),
-        Mode::Auto => {
-            let selector = usize::try_from(input.read(AUTO_SELECTOR_BITS)?).unwrap_or(usize::MAX);
-            let mode = *Mode::CONCRETE.get(selector).ok_or(DecodeError::Corrupt("unknown block mode"))?;
-            decode_block::<T>(mode, n, input, out)
-        }
-    }
+    let codec = match mode {
+        Mode::Fixed(codec) => codec,
+        Mode::Profile(p) => p.codec(),
+        Mode::Auto => Codec::from_code(input.read(AUTO_SELECTOR_BITS)?).ok_or(DecodeError::Corrupt("unknown block mode"))?,
+    };
+    decode_codec::<T>(codec, n, input, out)
 }
 
 fn write_varint(out: &mut Vec<u8>, mut v: u64) {
@@ -394,8 +580,7 @@ fn take_byte(bytes: &mut &[u8]) -> Result<u8, DecodeError> {
 impl Header {
     fn descriptor(&self) -> u8 {
         let t = SampleType::ALL.iter().position(|&t| t == self.sample_type).unwrap_or_default();
-        let m = Mode::ALL.iter().position(|&m| m == self.config.mode).unwrap_or_default();
-        u8::try_from(t << 4 | m).unwrap_or_default()
+        u8::try_from(t << 4).unwrap_or_default() | self.config.mode.code()
     }
 
     fn write(&self, out: &mut Vec<u8>) {
@@ -410,24 +595,132 @@ impl Header {
 pub struct Encoder<T: Sample> {
     config: Config,
     out: BitWriter,
+    /// Items not yet encoded: fewer than `batch` blocks.
     block: Vec<T::Word>,
     count: u64,
+    threads: Threads,
+}
+
+/// How many threads an encoder may use. Blocks are independent, so the
+/// output never depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Threads(core::num::NonZeroUsize);
+
+impl Threads {
+    /// One thread: encode each block as soon as it is complete.
+    pub const ONE: Self = Self(core::num::NonZeroUsize::MIN);
+
+    /// Exactly `n` threads (`None` for zero).
+    #[must_use]
+    pub fn new(n: usize) -> Option<Self> {
+        core::num::NonZeroUsize::new(n).map(Self)
+    }
+
+    /// As many threads as the machine offers ([`std::thread::available_parallelism`], else one).
+    #[must_use]
+    pub fn available() -> Self {
+        std::thread::available_parallelism().map_or(Self::ONE, Self)
+    }
+
+    /// The thread count.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl From<core::num::NonZeroUsize> for Threads {
+    fn from(n: core::num::NonZeroUsize) -> Self {
+        Self(n)
+    }
+}
+
+/// Blocks buffered per thread before a parallel encoder flushes, so each
+/// thread gets enough work to outweigh starting it.
+const BLOCKS_PER_THREAD: usize = 8;
+
+/// Encode `blocks` (consecutive blocks of `items`) across up to `threads` threads, in order.
+fn encode_blocks<T: Sample>(mode: Mode, items: &[T::Word], interval: usize, threads: Threads, out: &mut BitWriter) {
+    let blocks: Vec<&[T::Word]> = items.chunks(interval).collect();
+    if threads.get() == 1 || blocks.len() < 2 {
+        for b in blocks {
+            encode_block::<T>(mode, b, out);
+        }
+        return;
+    }
+    let per_thread = blocks.len().div_ceil(threads.get());
+    let parts: Vec<BitWriter> = std::thread::scope(|s| {
+        let handles: Vec<_> = blocks
+            .chunks(per_thread)
+            .map(|run| {
+                s.spawn(move || {
+                    let mut w = BitWriter::new();
+                    for b in run {
+                        encode_block::<T>(mode, b, &mut w);
+                    }
+                    w
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    });
+    for p in &parts {
+        out.append(p);
+    }
 }
 
 impl<T: Sample> Encoder<T> {
-    /// New empty stream.
+    /// New empty stream, encoded on the calling thread.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self { config, out: BitWriter::new(), block: Vec::new(), count: 0 }
+        Self::with_threads(config, Threads::ONE)
+    }
+
+    /// New empty stream whose blocks are encoded across `threads` threads,
+    /// in batches of [`BLOCKS_PER_THREAD`] blocks per thread. The bytes are
+    /// identical to [`Encoder::new`]'s.
+    #[must_use]
+    pub fn with_threads(config: Config, threads: Threads) -> Self {
+        Self { config, out: BitWriter::new(), block: Vec::new(), count: 0, threads }
+    }
+
+    fn interval(&self) -> usize {
+        self.config.checkpoint_interval.get() as usize
+    }
+
+    /// Items buffered before a flush: one block on one thread, else a batch.
+    fn batch_items(&self) -> usize {
+        let blocks = if self.threads.get() == 1 { 1 } else { self.threads.get() * BLOCKS_PER_THREAD };
+        self.interval() * blocks
+    }
+
+    fn flush(&mut self) {
+        let interval = self.interval();
+        encode_blocks::<T>(self.config.mode, &self.block, interval, self.threads, &mut self.out);
+        self.block.clear();
     }
 
     /// Append one item.
     pub fn push(&mut self, item: T) {
         self.block.push(item.to_word());
         self.count += 1;
-        if self.block.len() == self.config.checkpoint_interval.get() as usize {
-            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
-            self.block.clear();
+        if self.block.len() == self.batch_items() {
+            self.flush();
+        }
+    }
+
+    /// Append every item of `items` (the same as pushing each).
+    pub fn extend(&mut self, items: &[T]) {
+        let batch = self.batch_items();
+        let mut rest = items;
+        while !rest.is_empty() {
+            let take = (batch - self.block.len()).min(rest.len());
+            self.block.extend(rest[..take].iter().map(|x| x.to_word()));
+            self.count += take as u64;
+            rest = &rest[take..];
+            if self.block.len() == batch {
+                self.flush();
+            }
         }
     }
 
@@ -447,18 +740,15 @@ impl<T: Sample> Encoder<T> {
     #[must_use]
     pub fn payload_bits(&self) -> usize {
         let mut pending = BitWriter::new();
-        if !self.block.is_empty() {
-            encode_block::<T>(self.config.mode, &self.block, &mut pending);
-        }
+        encode_blocks::<T>(self.config.mode, &self.block, self.interval(), self.threads, &mut pending);
         self.out.bit_len() + pending.bit_len()
     }
 
     /// Header followed by the payload.
     #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
-        if !self.block.is_empty() {
-            encode_block::<T>(self.config.mode, &self.block, &mut self.out);
-        }
+        let interval = self.interval();
+        encode_blocks::<T>(self.config.mode, &self.block, interval, self.threads, &mut self.out);
         let header = Header { sample_type: T::TYPE, config: self.config, count: self.count };
         let mut bytes = Vec::with_capacity(16 + self.out.bit_len() / 8);
         header.write(&mut bytes);
@@ -480,31 +770,10 @@ pub fn encode<T: Sample>(items: &[T], config: Config) -> Vec<u8> {
 /// Compress `items` using up to `threads` threads. Blocks are independent, so
 /// the output is byte-for-byte identical to [`encode`].
 #[must_use]
-pub fn encode_parallel<T: Sample>(items: &[T], config: Config, threads: core::num::NonZeroUsize) -> Vec<u8> {
-    let interval = config.checkpoint_interval.get() as usize;
-    let blocks: Vec<&[T]> = items.chunks(interval).collect();
-    let per_thread = blocks.len().div_ceil(threads.get()).max(1);
-    let encode_run = |run: &[&[T]]| {
-        let mut out = BitWriter::new();
-        for block in run {
-            let words: Vec<T::Word> = block.iter().map(|x| x.to_word()).collect();
-            encode_block::<T>(config.mode, &words, &mut out);
-        }
-        out
-    };
-    let parts: Vec<BitWriter> = std::thread::scope(|s| {
-        let handles: Vec<_> = blocks.chunks(per_thread).map(|run| s.spawn(move || encode_run(run))).collect();
-        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
-    });
-    let mut payload = BitWriter::new();
-    for p in &parts {
-        payload.append(p);
-    }
-    let header = Header { sample_type: T::TYPE, config, count: items.len() as u64 };
-    let mut bytes = Vec::with_capacity(16 + payload.bit_len() / 8);
-    header.write(&mut bytes);
-    bytes.extend(payload.finish());
-    bytes
+pub fn encode_parallel<T: Sample>(items: &[T], config: Config, threads: impl Into<Threads>) -> Vec<u8> {
+    let mut e = Encoder::with_threads(config, threads.into());
+    e.extend(items);
+    e.finish()
 }
 
 /// Parse the header of `bytes`, returning it and the payload.
@@ -524,7 +793,7 @@ pub fn read_header(mut bytes: &[u8]) -> Result<(Header, &[u8]), DecodeError> {
         return Err(DecodeError::InvalidHeader("reserved descriptor bits set"));
     }
     let sample_type = SampleType::ALL[usize::from(descriptor >> 4)];
-    let mode = *Mode::ALL.get(usize::from(descriptor & 0x0F)).ok_or(DecodeError::InvalidHeader("unknown mode"))?;
+    let mode = Mode::from_code(descriptor & 0x0F).ok_or(DecodeError::InvalidHeader("unknown mode"))?;
     let checkpoint_interval = u32::try_from(read_varint(&mut bytes)?)
         .ok()
         .and_then(CheckpointInterval::new)
@@ -593,9 +862,21 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    const MODES: [Mode; 7] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal, Mode::Auto];
+    const MODES: [Mode; 11] = [
+        Mode::Fixed(Codec::Xor),
+        Mode::Fixed(Codec::Dod),
+        Mode::Fixed(Codec::XorDod),
+        Mode::Fixed(Codec::DodXor),
+        Mode::Fixed(Codec::Delta),
+        Mode::Fixed(Codec::Decimal),
+        Mode::Fixed(Codec::Raw),
+        Mode::Fixed(Codec::Dictionary),
+        Mode::Fixed(Codec::DecimalSplit),
+        Mode::Fixed(Codec::BitSplit),
+        Mode::Auto,
+    ];
 
-    fn cfg(mode: Mode, interval: u32) -> Config {
+    fn cfg(mode: impl Into<Mode>, interval: u32) -> Config {
         Config::new(mode).with_interval(CheckpointInterval::new(interval).unwrap())
     }
 
@@ -619,7 +900,8 @@ mod tests {
             ["int32", "int64", "f32", "f64"],
             [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].map(SampleType::name)
         );
-        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"], MODES.map(Mode::name));
+        assert_eq!(["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "bit_split", "auto"], MODES.map(Mode::name));
+        assert_eq!(Mode::all(), MODES);
     }
 
     #[test]
@@ -638,7 +920,7 @@ mod tests {
         );
         assert_eq!(
             "rle".parse::<Mode>(),
-            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')".into()))
+            Err(ConfigError("mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'bit_split', 'auto' (got 'rle')".into()))
         );
     }
 
@@ -656,10 +938,10 @@ mod tests {
 
     #[test]
     fn header_layout() {
-        let bytes = encode::<i64>(&[], cfg(Mode::Dod, 300));
+        let bytes = encode::<i64>(&[], cfg(Codec::Dod, 300));
         // magic, version, I64 << 4 | Dod, varint(300) = AC 02, varint(0)
         assert_eq!(bytes, vec![b'G', 1, 0x11, 0xAC, 0x02, 0x00]);
-        let bytes = encode::<f32>(&[1.5], cfg(Mode::DodXor, 1));
+        let bytes = encode::<f32>(&[1.5], cfg(Codec::DodXor, 1));
         let mut expected = vec![b'G', 1, 0x23, 1, 1];
         expected.extend(1.5f32.to_bits().to_be_bytes());
         assert_eq!(bytes, expected);
@@ -667,9 +949,9 @@ mod tests {
 
     #[test]
     fn header_round_trips() {
-        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], cfg(Mode::XorDod, 7));
+        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], cfg(Codec::XorDod, 7));
         let (h, _) = read_header(&bytes).unwrap();
-        assert_eq!(h, Header { sample_type: SampleType::F64, config: cfg(Mode::XorDod, 7), count: 3 });
+        assert_eq!(h, Header { sample_type: SampleType::F64, config: cfg(Codec::XorDod, 7), count: 3 });
     }
 
     #[test]
@@ -717,34 +999,51 @@ mod tests {
 
     #[test]
     fn every_descriptor_decodes() {
+        // The format's mode codes; Auto keeps 6 from before Raw existed.
+        let codes = [
+            (0, Mode::Fixed(Codec::Xor)),
+            (1, Mode::Fixed(Codec::Dod)),
+            (2, Mode::Fixed(Codec::XorDod)),
+            (3, Mode::Fixed(Codec::DodXor)),
+            (4, Mode::Fixed(Codec::Delta)),
+            (5, Mode::Fixed(Codec::Decimal)),
+            (6, Mode::Auto),
+            (7, Mode::Fixed(Codec::Raw)),
+            (8, Mode::Fixed(Codec::Dictionary)),
+            (9, Mode::Fixed(Codec::DecimalSplit)),
+            (10, Mode::Fixed(Codec::BitSplit)),
+        ];
+        assert_eq!(codes.len(), MODES.len());
         for (ti, t) in [SampleType::I32, SampleType::I64, SampleType::F32, SampleType::F64].into_iter().enumerate() {
-            for (mi, m) in MODES.into_iter().enumerate() {
-                let d = u8::try_from(ti << 4 | mi).unwrap();
+            for (code, m) in codes {
+                let d = u8::try_from(ti << 4).unwrap() | code;
                 let (h, _) = read_header(&[b'G', 1, d, 5, 0]).unwrap();
                 assert_eq!((h.sample_type, h.config.mode), (t, m));
+                // and the encoder writes the same code
+                assert_eq!(Header { sample_type: t, config: cfg(m, 5), count: 0 }.descriptor(), d);
             }
         }
     }
 
     #[test]
     fn type_mismatch_is_reported() {
-        let bytes = encode::<i64>(&[1, 2], Config::new(Mode::Dod));
+        let bytes = encode::<i64>(&[1, 2], Config::new(Codec::Dod));
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::KindMismatch { expected: "f64", found: "int64" }));
     }
 
     #[test]
     fn truncated_payload_is_eof() {
-        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], Config::new(Mode::Xor));
+        let bytes = encode::<f64>(&[1.0, 2.0, 3.0], Config::new(Codec::Xor));
         assert_eq!(decode::<f64>(&bytes[..bytes.len() - 1]), Err(DecodeError::UnexpectedEof));
     }
 
     #[test]
     fn trailing_data_is_rejected() {
-        let mut bytes = encode::<f64>(&[1.0], Config::new(Mode::Xor));
+        let mut bytes = encode::<f64>(&[1.0], Config::new(Codec::Xor));
         bytes.push(0);
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("trailing data after last item")));
         // Non-zero padding bits are trailing data too.
-        let mut bytes = encode::<i64>(&[5, 5], Config::new(Mode::Dod)); // 64 + 1 bits
+        let mut bytes = encode::<i64>(&[5, 5], Config::new(Codec::Dod)); // 64 + 1 bits
         *bytes.last_mut().unwrap() |= 1;
         assert_eq!(decode::<i64>(&bytes), Err(DecodeError::Corrupt("trailing data after last item")));
     }
@@ -757,15 +1056,15 @@ mod tests {
 
     #[test]
     fn decode_any_dispatches_on_header() {
-        assert_eq!(decode_any(&encode(&[1i32, -2], Config::new(Mode::Dod))), Ok(Decoded::I32(vec![1, -2])));
-        assert_eq!(decode_any(&encode(&[1i64], Config::new(Mode::Dod))), Ok(Decoded::I64(vec![1])));
-        assert_eq!(decode_any(&encode(&[1.5f32], Config::new(Mode::Xor))), Ok(Decoded::F32(vec![1.5])));
-        assert_eq!(decode_any(&encode(&[2.5f64], Config::new(Mode::Xor))), Ok(Decoded::F64(vec![2.5])));
+        assert_eq!(decode_any(&encode(&[1i32, -2], Config::new(Codec::Dod))), Ok(Decoded::I32(vec![1, -2])));
+        assert_eq!(decode_any(&encode(&[1i64], Config::new(Codec::Dod))), Ok(Decoded::I64(vec![1])));
+        assert_eq!(decode_any(&encode(&[1.5f32], Config::new(Codec::Xor))), Ok(Decoded::F32(vec![1.5])));
+        assert_eq!(decode_any(&encode(&[2.5f64], Config::new(Codec::Xor))), Ok(Decoded::F64(vec![2.5])));
     }
 
     #[test]
     fn encoder_len_tracks_pushes() {
-        let mut e = Encoder::<i64>::new(Config::new(Mode::Dod));
+        let mut e = Encoder::<i64>::new(Config::new(Codec::Dod));
         assert!(e.is_empty());
         e.push(1);
         e.push(2);
@@ -776,26 +1075,26 @@ mod tests {
     #[test]
     fn checkpoint_restarts_with_verbatim_item() {
         // interval 2: [verbatim, residual][verbatim, residual]
-        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Mode::Dod, 2)), 2 * (64 + 1));
-        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Mode::Dod, 4)), 64 + 3);
+        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Codec::Dod, 2)), 2 * (64 + 1));
+        assert_eq!(payload_bits(&[5i64, 5, 5, 5], cfg(Codec::Dod, 4)), 64 + 3);
     }
 
     #[test]
     fn decimal_mode_beats_xor_on_decimal_data() {
         let v: Vec<f64> = (0..2000).map(|i| f64::from(150 + (i * 37) % 41) / 10.0).collect();
-        let xor = payload_bits(&v, Config::new(Mode::Xor));
-        let dec = payload_bits(&v, Config::new(Mode::Decimal));
+        let xor = payload_bits(&v, Config::new(Codec::Xor));
+        let dec = payload_bits(&v, Config::new(Codec::Decimal));
         assert!(dec * 3 < xor, "decimal {dec} vs xor {xor}");
-        assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+        assert_eq!(decode::<f64>(&encode(&v, Config::new(Codec::Decimal))), Ok(v));
     }
 
     #[test]
     fn decimal_mode_on_integers_matches_delta() {
         let v: Vec<i64> = (0..500).map(|i| 1000 + 3 * i + i % 4).collect();
-        let delta = payload_bits(&v, Config::new(Mode::Delta));
+        let delta = payload_bits(&v, Config::new(Codec::Delta));
         // per block of 100: 6-bit exponent + 7-bit (empty) exception count
-        assert_eq!(payload_bits(&v, Config::new(Mode::Decimal)), delta + 5 * (6 + 7));
-        assert_eq!(decode::<i64>(&encode(&v, Config::new(Mode::Decimal))), Ok(v));
+        assert_eq!(payload_bits(&v, Config::new(Codec::Decimal)), delta + 5 * (6 + 7));
+        assert_eq!(decode::<i64>(&encode(&v, Config::new(Codec::Decimal))), Ok(v));
     }
 
     #[test]
@@ -811,10 +1110,10 @@ mod tests {
         }));
         let per_block: usize = v
             .chunks(100)
-            .map(|b| 3 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .map(|b| 4 + f64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
-        let best_single = Mode::CONCRETE.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
+        let best_single = Codec::ALL.iter().map(|&m| payload_bits(&v, Config::new(m))).min().unwrap();
         assert!(per_block < best_single);
         assert_eq!(decode::<f64>(&encode(&v, Config::new(Mode::Auto))), Ok(v));
     }
@@ -832,13 +1131,73 @@ mod tests {
     }
 
     #[test]
+    fn thread_counts() {
+        assert_eq!(Threads::new(0), None);
+        assert_eq!(Threads::new(3).map(Threads::get), Some(3));
+        assert_eq!(Threads::ONE.get(), 1);
+        let all = Threads::available().get();
+        assert_eq!(Some(all), std::thread::available_parallelism().ok().map(core::num::NonZeroUsize::get));
+    }
+
+    #[test]
+    fn threaded_streaming_matches_sequential() {
+        let v: Vec<f64> = (0..5_003).map(|i| f64::from(i % 311) / 10.0).collect();
+        let c = cfg(Mode::Auto, 50);
+        let expected = encode(&v, c);
+        for t in [1, 2, 3, 7] {
+            let mut e = Encoder::with_threads(c, Threads::new(t).unwrap());
+            for (i, &x) in v.iter().enumerate() {
+                e.push(x);
+                if i % 997 == 0 {
+                    let mut seq = Encoder::new(c);
+                    seq.extend(&v[..=i]);
+                    assert_eq!(e.payload_bits(), seq.payload_bits(), "threads = {t}, after {i}");
+                }
+            }
+            assert_eq!(e.len(), 5_003);
+            assert_eq!(e.finish(), expected, "threads = {t}");
+        }
+    }
+
+    #[test]
+    fn threaded_encoder_buffers_a_batch_then_flushes() {
+        let c = cfg(Mode::Fixed(Codec::Raw), 10);
+        let mut e = Encoder::<i64>::with_threads(c, Threads::new(2).unwrap());
+        assert_eq!(e.batch_items(), 10 * 2 * BLOCKS_PER_THREAD);
+        e.extend(&vec![7; 10 * 2 * BLOCKS_PER_THREAD - 1]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (159, 0));
+        e.push(7);
+        assert_eq!((e.block.len(), e.out.bit_len()), (0, 160 * 64));
+        assert_eq!(Encoder::<i64>::new(c).batch_items(), 10);
+        // A large extend flushes batch by batch instead of buffering everything.
+        let mut e = Encoder::<i64>::with_threads(c, Threads::new(2).unwrap());
+        e.extend(&vec![7; 3 * 160 + 5]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (5, 3 * 160 * 64));
+        // ... also when it starts with a partly filled batch.
+        e.extend(&vec![7; 2 * 160]);
+        assert_eq!((e.block.len(), e.out.bit_len()), (5, 5 * 160 * 64));
+    }
+
+    #[test]
     fn auto_candidates_by_sample_type() {
-        // Decimal on integers is Delta plus a header, so it can never win.
-        assert_eq!(i64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta]);
+        // Measured on 25 benchmark datasets: these lose nothing against all codecs.
+        assert_eq!(i64::AUTO, [Codec::Dod, Codec::Delta, Codec::Dictionary, Codec::Raw]);
         assert_eq!(i32::AUTO, i64::AUTO);
-        // Raw-bit Delta essentially never beats Decimal on floats.
-        assert_eq!(f64::AUTO, [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Decimal]);
+        assert_eq!(
+            f64::AUTO,
+            [Codec::Xor, Codec::Decimal, Codec::DecimalSplit, Codec::Dictionary, Codec::BitSplit, Codec::Raw]
+        );
         assert_eq!(f32::AUTO, f64::AUTO);
+    }
+
+    #[test]
+    fn raw_is_verbatim() {
+        let v = [1.5f64, f64::NAN, -0.0];
+        assert_eq!(payload_bits(&v, Config::new(Codec::Raw)), 3 * 64);
+        assert_eq!(payload_bits(&[7i32, -7], Config::new(Codec::Raw)), 2 * 32);
+        assert_eq!(bits_of(&decode::<f64>(&encode(&v, Config::new(Codec::Raw))).unwrap()), bits_of(&v));
+        // header code 7
+        assert_eq!(encode::<f64>(&[], Config::new(Codec::Raw))[2], 0x37);
     }
 
     #[test]
@@ -846,18 +1205,18 @@ mod tests {
         let v: Vec<i64> = (0..300).map(|i| 1_700_000_000 + 10 * i + i % 3).collect();
         let per_block: usize = v
             .chunks(100)
-            .map(|b| 3 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
+            .map(|b| 4 + i64::AUTO.iter().map(|&m| payload_bits(b, Config::new(m))).min().unwrap())
             .sum();
         assert_eq!(payload_bits(&v, Config::new(Mode::Auto)), per_block);
     }
 
     #[test]
     fn auto_rejects_unknown_block_selector() {
-        // f64 auto stream, one item, selector 7.
-        let bytes = [b'G', 1, 0x36, 1, 1, 0b1110_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        // f64 auto stream, one item, 4-bit selector 15.
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b1111_0000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
         // selector 6 would be Auto itself
-        let bytes = [b'G', 1, 0x36, 1, 1, 0b1100_0000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let bytes = [b'G', 1, 0x36, 1, 1, 0b0110_0000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(decode::<f64>(&bytes), Err(DecodeError::Corrupt("unknown block mode")));
     }
 
@@ -899,9 +1258,21 @@ mod tests {
 
     proptest! {
         #[test]
+        fn auto_never_exceeds_raw(w in prop::collection::vec(any::<u64>(), 1..400), k in 1u32..120) {
+            let v: Vec<f64> = w.iter().map(|&x| f64::from_bits(x)).collect();
+            let blocks = v.len().div_ceil(k as usize);
+            prop_assert!(payload_bits(&v, cfg(Mode::Auto, k)) <= v.len() * 64 + blocks * 4);
+        }
+
+        #[test]
         fn parallel_matches_sequential(v in prop::collection::vec(any::<i64>(), 0..300), k in 1u32..40, t in 1usize..6, m in 0usize..MODES.len()) {
             let c = cfg(MODES[m], k);
             prop_assert_eq!(encode_parallel(&v, c, core::num::NonZeroUsize::new(t).unwrap()), encode(&v, c));
+            let mut e = Encoder::with_threads(c, Threads::new(t).unwrap());
+            for &x in &v {
+                e.push(x);
+            }
+            prop_assert_eq!(e.finish(), encode(&v, c));
         }
 
         #[test]

@@ -10,10 +10,18 @@ use std::hint::black_box;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use gorilla_tsc::{CheckpointInterval, Config, Encoder, Mode, Sample, decode, encode};
+use gorilla_tsc::{CheckpointInterval, Codec, Config, Encoder, Mode, Profile, Sample, decode, encode};
 
 const BLOCK: u32 = 1000;
-const MODES: [Mode; 7] = [Mode::Xor, Mode::Dod, Mode::XorDod, Mode::DodXor, Mode::Delta, Mode::Decimal, Mode::Auto];
+const MODES: [Mode; 7] = [
+    Mode::Fixed(Codec::Xor),
+    Mode::Fixed(Codec::Dod),
+    Mode::Fixed(Codec::XorDod),
+    Mode::Fixed(Codec::DodXor),
+    Mode::Fixed(Codec::Delta),
+    Mode::Fixed(Codec::Decimal),
+    Mode::Auto,
+];
 
 fn column(path: &Path, col: usize) -> Vec<f64> {
     std::fs::read_to_string(path)
@@ -115,10 +123,50 @@ fn report<T: Sample>(name: &str, data: &[T], reference: &str, min: Duration) {
     }
 }
 
+/// One line per Elf dataset (`bench-data/elf`, see `scripts/fetch-bench-data.sh`).
+#[allow(clippy::cast_precision_loss)]
+fn elf(dir: &Path, min: Duration) {
+    const SETS: [&str; 22] = [
+        "Air-pressure", "Air-sensor", "Basel-temp", "Basel-wind", "Bird-migration", "Bitcoin-price",
+        "City-temp", "Dew-point-temp", "IR-bio-temp", "PM10-dust", "Stocks-DE", "Stocks-UK", "Stocks-USA",
+        "Wind-Speed", "Blockchain-tr", "City-lat", "City-lon", "Food-price", "POI-lat", "POI-lon", "SSD-bench",
+        "electric_vehicle_charging",
+    ];
+    println!(
+        "{:<26} {:>8} {:>8} {:>9} {:>9}   {:>8} {:>9}  learned from first 10k",
+        "Elf dataset", "gorilla", "auto", "enc MB/s", "dec MB/s", "profile", "enc MB/s"
+    );
+    let (mut sum_g, mut sum_a, mut sum_p) = (0.0, 0.0, 0.0);
+    for name in SETS {
+        let v: Vec<f64> = std::fs::read_to_string(dir.join("elf").join(format!("{name}.csv")))
+            .unwrap_or_else(|e| panic!("{name}: {e} (run scripts/fetch-bench-data.sh)"))
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect();
+        let g = measure(&v, Mode::Fixed(Codec::Xor), Duration::ZERO);
+        let a = measure(&v, Mode::Auto, min);
+        let profile = Profile::learn(&v[..v.len().min(10_000)], CheckpointInterval::new(BLOCK).unwrap());
+        let p = measure(&v, Mode::Profile(profile), min);
+        sum_g += g.bits_per_value;
+        sum_a += a.bits_per_value;
+        sum_p += p.bits_per_value;
+        println!(
+            "{name:<26} {:>8.2} {:>8.2} {:>9.1} {:>9.0}   {:>8.2} {:>9.1}  {profile}",
+            g.bits_per_value, a.bits_per_value, a.enc_mbs, a.dec_mbs, p.bits_per_value, p.enc_mbs
+        );
+    }
+    let n = SETS.len() as f64;
+    println!("{:<26} {:>8.2} {:>8.2} {:>9} {:>9}   {:>8.2}", "mean", sum_g / n, sum_a / n, "", "", sum_p / n);
+}
+
 fn main() {
     let quick = std::env::args().any(|a| a == "--quick");
     let min = Duration::from_millis(if quick { 0 } else { 300 });
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench-data");
+    if std::env::args().any(|a| a == "--elf") {
+        elf(&dir, min);
+        return;
+    }
     let limit = if quick { 200_000 } else { usize::MAX };
     let take = |mut v: Vec<f64>| {
         v.truncate(limit);

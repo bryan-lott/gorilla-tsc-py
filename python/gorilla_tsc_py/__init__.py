@@ -17,6 +17,7 @@ from gorilla_tsc_py._native import (
     estimate_ts_compression,
     estimate_val_compression,
     inspect,
+    learn_profile,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "estimate_ts_compression",
     "estimate_val_compression",
     "inspect",
+    "learn_profile",
 ]

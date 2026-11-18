@@ -1,0 +1,3778 @@
+[
+  {
+    "auto_bpv": 10.005128846634976,
+    "auto_subsets": {
+      "decimal+xor": 10.005128846634976,
+      "decimal+xor+xor_dod": 10.005128846634976
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 10.00212659494621,
+      "dod": 66.74417271286798,
+      "dod_xor": 66.69759611375198,
+      "xor": 45.95504962054874,
+      "xor_dod": 65.17199357851722
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 10.00212659494621,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 10.00212659494621,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 10.00212659494621,
+        "mode": "decimal"
+      }
+    },
+    "n": 95928,
+    "name": "Air-pressure",
+    "probe_block_head": {
+      "first 128 of each block": 10.005128846634976,
+      "first 16 of each block": 10.005128846634976,
+      "first 256 of each block": 10.005128846634976,
+      "first 64 of each block": 10.005128846634976
+    },
+    "profiles": [
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice"
+      },
+      {
+        "blocks": 96,
+        "bpv": 10.109238178633975,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice",
+        "relearns": 24
+      },
+      {
+        "blocks": 96,
+        "bpv": 10.165009173546826,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice",
+        "relearns": 2
+      },
+      {
+        "blocks": 96,
+        "bpv": 10.165009173546826,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 10.154824451672088,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice"
+      },
+      {
+        "bpv": 10.165009173546826,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff rice"
+      },
+      {
+        "bpv": 10.141689600533734,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=5 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=5 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 10.141689600533734,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.141689600533734,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 10.16200692185806,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 10.005128846634976,
+      "every 4 blocks": 10.005128846634976,
+      "every 64 blocks": 10.005128846634976
+    },
+    "winners": {
+      "decimal": 96,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 50.52793167128347,
+    "auto_subsets": {
+      "decimal+xor": 50.52793167128347,
+      "decimal+xor+xor_dod": 50.52793167128347
+    },
+    "best_fixed": "xor",
+    "fixed_bpv": {
+      "decimal": 55.48418744228994,
+      "dod": 67.99584487534626,
+      "dod_xor": 67.99584487534626,
+      "xor": 52.266505078485686,
+      "xor_dod": 65.98072483841182
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 52.266505078485686,
+        "mode": "xor"
+      },
+      "first 1000 values": {
+        "bpv": 52.266505078485686,
+        "mode": "xor"
+      },
+      "first 10000 values": {
+        "bpv": 52.266505078485686,
+        "mode": "xor"
+      }
+    },
+    "n": 8664,
+    "name": "Air-sensor",
+    "probe_block_head": {
+      "first 128 of each block": 51.46248845798707,
+      "first 16 of each block": 52.42601569713758,
+      "first 256 of each block": 50.52793167128347,
+      "first 64 of each block": 52.42601569713758
+    },
+    "profiles": [
+      {
+        "bpv": 59.87719298245614,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive"
+      },
+      {
+        "blocks": 9,
+        "bpv": 59.88030932594644,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 9,
+        "bpv": 59.88030932594644,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 9,
+        "bpv": 59.88030932594644,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 59.88030932594644,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive"
+      },
+      {
+        "bpv": 59.88030932594644,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive"
+      },
+      {
+        "bpv": 70.17036011080333,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 59.87719298245614,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=14 1st-diff adaptive"
+      },
+      {
+        "bpv": 55.96837488457987,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=16 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 55.96837488457987,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=14 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 65.2966297322253,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 65.2966297322253,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 65.2966297322253,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 55.96837488457987,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 64.24007386888273,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 55.96837488457987,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 52.26962142197599,
+      "every 4 blocks": 51.88758079409049,
+      "every 64 blocks": 52.26962142197599
+    },
+    "winners": {
+      "decimal": 3,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 6,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 25.648713512864873,
+    "auto_subsets": {
+      "decimal+xor": 25.648713512864873,
+      "decimal+xor+xor_dod": 25.648713512864873
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 25.645753542464576,
+      "dod": 67.76511234887651,
+      "dod_xor": 67.82578174218258,
+      "xor": 60.1129988700113,
+      "xor_dod": 65.83684163158368
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 25.645753542464576,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 25.645753542464576,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 25.645753542464576,
+        "mode": "decimal"
+      }
+    },
+    "n": 100001,
+    "name": "Basel-temp",
+    "probe_block_head": {
+      "first 128 of each block": 25.648713512864873,
+      "first 16 of each block": 25.648713512864873,
+      "first 256 of each block": 25.648713512864873,
+      "first 64 of each block": 25.648713512864873
+    },
+    "profiles": [
+      {
+        "bpv": 26.36790632093679,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice"
+      },
+      {
+        "blocks": 101,
+        "bpv": 26.765972340276598,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice",
+        "relearns": 32
+      },
+      {
+        "blocks": 101,
+        "bpv": 27.253697463025368,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice",
+        "relearns": 6
+      },
+      {
+        "blocks": 101,
+        "bpv": 26.370936290637093,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 26.614503854961452,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice"
+      },
+      {
+        "bpv": 26.370936290637093,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice"
+      },
+      {
+        "bpv": 26.36790632093679,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice"
+      },
+      {
+        "bpv": 26.36790632093679,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=8 2nd-diff rice"
+      },
+      {
+        "bpv": 26.393166068339315,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=8 guarded 2nd-diff rice"
+      },
+      {
+        "bpv": 26.393166068339315,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=8 guarded 2nd-diff rice"
+      },
+      {
+        "bpv": 28.004669953300468,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 2nd-diff rice"
+      },
+      {
+        "bpv": 26.144478555214448,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 2nd-diff rice"
+      },
+      {
+        "bpv": 27.482045179548205,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 27.633133668663312,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 27.17677823221768,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 26.803361966380336,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 2nd-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 25.64878351216488,
+      "every 4 blocks": 25.648713512864873,
+      "every 64 blocks": 25.64878351216488
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 27.20016,
+    "auto_subsets": {
+      "decimal+xor": 27.20016,
+      "decimal+xor+xor_dod": 27.20016
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 27.19716,
+      "dod": 67.93058,
+      "dod_xor": 67.54777,
+      "xor": 63.53032,
+      "xor_dod": 65.93371
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 27.19716,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 27.19716,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 27.19716,
+        "mode": "decimal"
+      }
+    },
+    "n": 100000,
+    "name": "Basel-wind",
+    "probe_block_head": {
+      "first 128 of each block": 27.20016,
+      "first 16 of each block": 27.20016,
+      "first 256 of each block": 27.20016,
+      "first 64 of each block": 27.20016
+    },
+    "profiles": [
+      {
+        "bpv": 27.1712,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice"
+      },
+      {
+        "blocks": 100,
+        "bpv": 27.1742,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 100,
+        "bpv": 27.1742,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 100,
+        "bpv": 27.1742,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 27.1742,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice"
+      },
+      {
+        "bpv": 27.1742,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice"
+      },
+      {
+        "bpv": 27.1712,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice"
+      },
+      {
+        "bpv": 27.1712,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=7 1st-diff rice"
+      },
+      {
+        "bpv": 27.32878,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=7 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 27.32878,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=7 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 29.90694,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 27.61602,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 28.47133,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 29.14615,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 28.58912,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 28.58912,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 27.20016,
+      "every 4 blocks": 27.20016,
+      "every 64 blocks": 27.20016
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 14.577253051732004,
+    "auto_subsets": {
+      "decimal+xor": 14.577253051732004,
+      "decimal+xor+xor_dod": 14.577253051732004
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 14.574248611837493,
+      "dod": 66.66224531808116,
+      "dod_xor": 64.74615821157933,
+      "xor": 50.24475057585098,
+      "xor_dod": 64.73983776024569
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 14.574248611837493,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 14.574248611837493,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 14.574248611837493,
+        "mode": "decimal"
+      }
+    },
+    "n": 89867,
+    "name": "Bird-migration",
+    "probe_block_head": {
+      "first 128 of each block": 14.577253051732004,
+      "first 16 of each block": 14.577253051732004,
+      "first 256 of each block": 14.577253051732004,
+      "first 64 of each block": 14.577253051732004
+    },
+    "profiles": [
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "blocks": 90,
+        "bpv": 14.581548288025639,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive",
+        "relearns": 19
+      },
+      {
+        "blocks": 90,
+        "bpv": 14.547976454093272,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive",
+        "relearns": 5
+      },
+      {
+        "blocks": 90,
+        "bpv": 14.547976454093272,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 14.547976454093272,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.547976454093272,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=5 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=5 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=5 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 15.762159635906395,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 14.54497201419876,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 14.577253051732004,
+      "every 4 blocks": 14.577253051732004,
+      "every 64 blocks": 14.577253051732004
+    },
+    "winners": {
+      "decimal": 90,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 21.13813940415964,
+    "auto_subsets": {
+      "decimal+xor": 21.13813940415964,
+      "decimal+xor+xor_dod": 21.13813940415964
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 21.13476672287802,
+      "dod": 67.99550309162451,
+      "dod_xor": 67.99550309162451,
+      "xor": 53.31211354693648,
+      "xor_dod": 66.01292861157954
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 21.13476672287802,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 21.13476672287802,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 21.13476672287802,
+        "mode": "decimal"
+      }
+    },
+    "n": 7116,
+    "name": "Bitcoin-price",
+    "probe_block_head": {
+      "first 128 of each block": 21.13813940415964,
+      "first 16 of each block": 21.13813940415964,
+      "first 256 of each block": 21.13813940415964,
+      "first 64 of each block": 21.13813940415964
+    },
+    "profiles": [
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "blocks": 8,
+        "bpv": 21.10328836424958,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 1
+      },
+      {
+        "blocks": 8,
+        "bpv": 21.10328836424958,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 8,
+        "bpv": 21.10328836424958,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 21.10328836424958,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 21.10328836424958,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 21.630831928049467,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 21.630831928049467,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 21.09991568296796,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 21.13813940415964,
+      "every 4 blocks": 21.13813940415964,
+      "every 64 blocks": 21.13813940415964
+    },
+    "winners": {
+      "decimal": 8,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 6.699143008569914,
+    "auto_subsets": {
+      "decimal+xor": 6.699143008569914,
+      "decimal+xor+xor_dod": 6.699143008569914
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 6.696183038169618,
+      "dod": 59.8489915100849,
+      "dod_xor": 58.95842041579584,
+      "xor": 54.15656843431566,
+      "xor_dod": 58.412135878641216
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 6.696183038169618,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 6.696183038169618,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 6.696183038169618,
+        "mode": "decimal"
+      }
+    },
+    "n": 100001,
+    "name": "City-temp",
+    "probe_block_head": {
+      "first 128 of each block": 6.699143008569914,
+      "first 16 of each block": 7.822461775382246,
+      "first 256 of each block": 6.699143008569914,
+      "first 64 of each block": 7.527514724852751
+    },
+    "profiles": [
+      {
+        "bpv": 6.664143358566414,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "blocks": 101,
+        "bpv": 6.667173328266717,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 20
+      },
+      {
+        "blocks": 101,
+        "bpv": 6.667173328266717,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 8
+      },
+      {
+        "blocks": 101,
+        "bpv": 6.667173328266717,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 6
+      },
+      {
+        "bpv": 6.667173328266717,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.667173328266717,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 8.395726042739573,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff rice"
+      },
+      {
+        "bpv": 6.664143358566414,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 8.395726042739573,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=1 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 6.664143358566414,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=1 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.664053359466405,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.664053359466405,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.664053359466405,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 7.617733822661774,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 9.243117568824312,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 7.617733822661774,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 6.699213007869921,
+      "every 4 blocks": 6.699143008569914,
+      "every 64 blocks": 6.699213007869921
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 8.286517134828651,
+    "auto_subsets": {
+      "decimal+xor": 8.286517134828651,
+      "decimal+xor+xor_dod": 8.286517134828651
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 8.283557164428355,
+      "dod": 67.5338946610534,
+      "dod_xor": 67.2930170698293,
+      "xor": 53.258337416625835,
+      "xor_dod": 65.75779242207578
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 8.283557164428355,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 8.283557164428355,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 8.283557164428355,
+        "mode": "decimal"
+      }
+    },
+    "n": 100001,
+    "name": "Dew-point-temp",
+    "probe_block_head": {
+      "first 128 of each block": 8.286517134828651,
+      "first 16 of each block": 8.286517134828651,
+      "first 256 of each block": 8.286517134828651,
+      "first 64 of each block": 8.286517134828651
+    },
+    "profiles": [
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "blocks": 101,
+        "bpv": 8.257327426725732,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 20
+      },
+      {
+        "blocks": 101,
+        "bpv": 8.27669723302767,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 8
+      },
+      {
+        "blocks": 101,
+        "bpv": 8.288937110628893,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 3
+      },
+      {
+        "bpv": 8.278277217227828,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 8.293567064329357,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 8.431065689343107,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 8.431065689343107,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 8.290537094629054,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 8.28658713412866,
+      "every 4 blocks": 8.286517134828651,
+      "every 64 blocks": 8.28658713412866
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 3.4628621915222584,
+    "auto_subsets": {
+      "decimal+xor": 3.4628621915222584,
+      "decimal+xor+xor_dod": 3.4628621915222584
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 3.4598502038111683,
+      "dod": 55.41087528362884,
+      "dod_xor": 58.18498624525612,
+      "xor": 44.44357543021224,
+      "xor_dod": 56.90152808176543
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 3.4598502038111683,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 3.4598502038111683,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 3.4598502038111683,
+        "mode": "decimal"
+      }
+    },
+    "n": 99602,
+    "name": "IR-bio-temp",
+    "probe_block_head": {
+      "first 128 of each block": 3.4628621915222584,
+      "first 16 of each block": 3.4628621915222584,
+      "first 256 of each block": 3.4628621915222584,
+      "first 64 of each block": 3.4628621915222584
+    },
+    "profiles": [
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "blocks": 100,
+        "bpv": 3.4390775285636837,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 40
+      },
+      {
+        "blocks": 100,
+        "bpv": 3.432852753960764,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 25
+      },
+      {
+        "blocks": 100,
+        "bpv": 3.4822091925864944,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 11
+      },
+      {
+        "bpv": 3.4814863155358324,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.423575831810606,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 16.092939900805206,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.6122367020742554,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 3.420563844099516,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 3.4628621915222584,
+      "every 4 blocks": 3.4628621915222584,
+      "every 64 blocks": 3.4628621915222584
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 3.212850462300613,
+    "auto_subsets": {
+      "decimal+xor": 3.212850462300613,
+      "decimal+xor+xor_dod": 3.212850462300613
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 3.2098396361384554,
+      "dod": 44.28358352373428,
+      "dod_xor": 42.49047639384169,
+      "xor": 30.55091712754372,
+      "xor_dod": 43.77732698426256
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 3.2098396361384554,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 3.2098396361384554,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 3.2098396361384554,
+        "mode": "decimal"
+      }
+    },
+    "n": 93662,
+    "name": "PM10-dust",
+    "probe_block_head": {
+      "first 128 of each block": 3.212850462300613,
+      "first 16 of each block": 5.853772074053512,
+      "first 256 of each block": 3.212850462300613,
+      "first 64 of each block": 3.5501163759048495
+    },
+    "profiles": [
+      {
+        "bpv": 3.2437381221840234,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "blocks": 94,
+        "bpv": 3.5950972646324018,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 48
+      },
+      {
+        "blocks": 94,
+        "bpv": 3.651384766500822,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 34
+      },
+      {
+        "blocks": 94,
+        "bpv": 3.6054322991181054,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 18
+      },
+      {
+        "bpv": 3.246748948346181,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.246748948346181,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.2437381221840234,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.2437381221840234,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.2437381221840234,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.2437381221840234,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.2430334607418163,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.1899489654288824,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.1899489654288824,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.857850569067498,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.0039076679976935,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 3.857850569067498,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 3.212850462300613,
+      "every 4 blocks": 3.212850462300613,
+      "every 64 blocks": 3.212850462300613
+    },
+    "winners": {
+      "decimal": 94,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 4.83987320253595,
+    "auto_subsets": {
+      "decimal+xor": 4.83987320253595,
+      "decimal+xor+xor_dod": 4.83987320253595
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 4.836843263134737,
+      "dod": 63.68648627027459,
+      "dod_xor": 62.780084398312034,
+      "xor": 45.83916321673566,
+      "xor_dod": 63.665966680666386
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 4.836843263134737,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 4.836843263134737,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 4.836843263134737,
+        "mode": "decimal"
+      }
+    },
+    "n": 100002,
+    "name": "Stocks-DE",
+    "probe_block_head": {
+      "first 128 of each block": 4.83987320253595,
+      "first 16 of each block": 4.83987320253595,
+      "first 256 of each block": 4.83987320253595,
+      "first 64 of each block": 4.83987320253595
+    },
+    "profiles": [
+      {
+        "bpv": 4.894002119957601,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice"
+      },
+      {
+        "blocks": 101,
+        "bpv": 5.24557508849823,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice",
+        "relearns": 26
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.911251774964501,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice",
+        "relearns": 9
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.861782764344713,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice",
+        "relearns": 4
+      },
+      {
+        "bpv": 4.895382092358153,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice"
+      },
+      {
+        "bpv": 4.897032059358813,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice"
+      },
+      {
+        "bpv": 4.894002119957601,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff rice"
+      },
+      {
+        "bpv": 4.847913041739165,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.894002119957601,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 4.894002119957601,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 4.891972160556789,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 4.891972160556789,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 4.845883082338354,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.274394512109758,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.325603487930241,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 5.325603487930241,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 4.83987320253595,
+      "every 4 blocks": 4.83987320253595,
+      "every 64 blocks": 4.83987320253595
+    },
+    "winners": {
+      "decimal": 101,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 4.814203715925681,
+    "auto_subsets": {
+      "decimal+xor": 4.8142137157256855,
+      "decimal+xor+xor_dod": 4.814203715925681
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 4.81132377352453,
+      "dod": 63.51352972940541,
+      "dod_xor": 62.834073318533626,
+      "xor": 36.87957240855183,
+      "xor_dod": 53.38333233335333
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 4.81132377352453,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 4.81132377352453,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 4.81132377352453,
+        "mode": "decimal"
+      }
+    },
+    "n": 100002,
+    "name": "Stocks-UK",
+    "probe_block_head": {
+      "first 128 of each block": 4.814203715925681,
+      "first 16 of each block": 4.814203715925681,
+      "first 256 of each block": 4.814203715925681,
+      "first 64 of each block": 4.814203715925681
+    },
+    "profiles": [
+      {
+        "bpv": 4.812203755924881,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "blocks": 101,
+        "bpv": 6.366322673546529,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 20
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.815233695326094,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 7
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.815233695326094,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive",
+        "relearns": 5
+      },
+      {
+        "bpv": 5.112887742245155,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.815233695326094,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 25.41865162696746,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff rice"
+      },
+      {
+        "bpv": 4.812203755924881,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.8869722605547885,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=1 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 4.812203755924881,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.805593888122238,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.801943961120777,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.801943961120777,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.478220435591288,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 6.580758384832303,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 6.478220435591288,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 4.814353712925741,
+      "every 4 blocks": 4.814203715925681,
+      "every 64 blocks": 4.814353712925741
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 1
+    }
+  },
+  {
+    "auto_bpv": 4.466490670186596,
+    "auto_subsets": {
+      "decimal+xor": 4.466490670186596,
+      "decimal+xor+xor_dod": 4.466490670186596
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 4.463460730785385,
+      "dod": 61.72443551128978,
+      "dod_xor": 60.692326153476934,
+      "xor": 43.29736405271895,
+      "xor_dod": 61.9647607047859
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 4.463460730785385,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 4.463460730785385,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 4.463460730785385,
+        "mode": "decimal"
+      }
+    },
+    "n": 100002,
+    "name": "Stocks-USA",
+    "probe_block_head": {
+      "first 128 of each block": 4.466490670186596,
+      "first 16 of each block": 4.466490670186596,
+      "first 256 of each block": 4.466490670186596,
+      "first 64 of each block": 4.466490670186596
+    },
+    "profiles": [
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.445631087378253,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 17
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.448821023579528,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 9
+      },
+      {
+        "blocks": 101,
+        "bpv": 4.453740925181497,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 4
+      },
+      {
+        "bpv": 4.457360852782944,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 4.464270714585708,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 4.454620907581848,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 4.454620907581848,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.454620907581848,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 4.461240775184496,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 4.466490670186596,
+      "every 4 blocks": 4.466490670186596,
+      "every 64 blocks": 4.466490670186596
+    },
+    "winners": {
+      "decimal": 101,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 5.160462817253762,
+    "auto_subsets": {
+      "decimal+xor": 5.160462817253762,
+      "decimal+xor+xor_dod": 5.160462817253762
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 5.157436549247468,
+      "dod": 66.23760238873422,
+      "dod_xor": 63.72832183351491,
+      "xor": 52.93119275309688,
+      "xor_dod": 64.99905176935803
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 5.157436549247468,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 5.157436549247468,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 5.157436549247468,
+        "mode": "decimal"
+      }
+    },
+    "n": 99132,
+    "name": "Wind-speed",
+    "probe_block_head": {
+      "first 128 of each block": 5.160462817253762,
+      "first 16 of each block": 5.160462817253762,
+      "first 256 of each block": 5.160462817253762,
+      "first 64 of each block": 5.160462817253762
+    },
+    "profiles": [
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "blocks": 100,
+        "bpv": 5.121968688213695,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 34
+      },
+      {
+        "blocks": 100,
+        "bpv": 5.146178832264052,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 10
+      },
+      {
+        "blocks": 100,
+        "bpv": 5.129594883589557,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice",
+        "relearns": 2
+      },
+      {
+        "bpv": 5.150657708913368,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 5.137140378485252,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 5.176068272606222,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 1st-diff rice"
+      },
+      {
+        "bpv": 5.176068272606222,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 5.176068272606222,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.176068272606222,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 5.126568615583262,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 5.160462817253762,
+      "every 4 blocks": 5.160462817253762,
+      "every 64 blocks": 5.160462817253762
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 2.9288796,
+    "auto_subsets": {
+      "decimal+xor": 2.9288796,
+      "decimal+xor+xor_dod": 2.9288796
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 2.9258796,
+      "dod": 54.284984,
+      "dod_xor": 47.0936176,
+      "xor": 46.8303718,
+      "xor_dod": 60.1489472
+    },
+    "kind": "time series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 2.9258796,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 2.9258796,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 2.9258796,
+        "mode": "decimal"
+      }
+    },
+    "n": 5000000,
+    "name": "Stocks-Germany (5M)",
+    "probe_block_head": {
+      "first 128 of each block": 2.9288796,
+      "first 16 of each block": 2.9288796,
+      "first 256 of each block": 2.9288796,
+      "first 64 of each block": 2.9288796
+    },
+    "profiles": [
+      {
+        "bpv": 2.8866728,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "blocks": 5000,
+        "bpv": 2.943585,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 1312
+      },
+      {
+        "blocks": 5000,
+        "bpv": 2.9539596,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 479
+      },
+      {
+        "blocks": 5000,
+        "bpv": 3.1110182,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 123
+      },
+      {
+        "bpv": 3.0986976,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.1172192,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8866728,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8866728,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8866728,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8866728,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.884162,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8841906,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 2.8841906,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.0812888,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.6506132,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 3.0812888,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 2.9288796,
+      "every 4 blocks": 2.9288796,
+      "every 64 blocks": 2.9288796
+    },
+    "winners": {
+      "decimal": 5000,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 3.9481096,
+    "auto_subsets": {
+      "delta+dod": 3.9481096
+    },
+    "best_fixed": "delta",
+    "fixed_bpv": {
+      "delta": 3.9451096,
+      "dod": 8.0342244,
+      "dod_xor": 9.6363884,
+      "xor": 25.7852608,
+      "xor_dod": 30.2135352
+    },
+    "kind": "integer timestamps",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 3.9451096,
+        "mode": "delta"
+      },
+      "first 1000 values": {
+        "bpv": 3.9451096,
+        "mode": "delta"
+      },
+      "first 10000 values": {
+        "bpv": 3.9451096,
+        "mode": "delta"
+      }
+    },
+    "n": 5000000,
+    "name": "Stock timestamps (s)",
+    "probe_block_head": {
+      "first 128 of each block": 3.9481096,
+      "first 16 of each block": 3.9513844,
+      "first 256 of each block": 3.9481096,
+      "first 64 of each block": 3.9481096
+    },
+    "profiles": [
+      {
+        "bpv": 3.9674192,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "blocks": 5000,
+        "bpv": 3.9497026,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive",
+        "relearns": 1860
+      },
+      {
+        "blocks": 5000,
+        "bpv": 3.9590666,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive",
+        "relearns": 652
+      },
+      {
+        "blocks": 5000,
+        "bpv": 3.9689614,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive",
+        "relearns": 81
+      },
+      {
+        "bpv": 3.961978,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.9634038,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "bpv": 4.0509248,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "bpv": 3.9674192,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "bpv": 3.9674192,
+        "label": "universal: 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.0575552,
+        "label": "universal: 2nd diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=0 2nd-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 3.9481096,
+      "every 4 blocks": 3.9481096,
+      "every 64 blocks": 3.9481096
+    },
+    "winners": {
+      "delta": 5000,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 4.921251,
+    "auto_subsets": {
+      "delta+dod": 4.921251
+    },
+    "best_fixed": "delta",
+    "fixed_bpv": {
+      "delta": 4.918251,
+      "dod": 8.750552,
+      "dod_xor": 67.996,
+      "xor": 35.045301,
+      "xor_dod": 33.500379
+    },
+    "kind": "integer timestamps",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 4.918251,
+        "mode": "delta"
+      },
+      "first 1000 values": {
+        "bpv": 4.918251,
+        "mode": "delta"
+      },
+      "first 10000 values": {
+        "bpv": 4.918251,
+        "mode": "delta"
+      }
+    },
+    "n": 1000000,
+    "name": "Scrape timestamps (10 s +/- 5 ms)",
+    "probe_block_head": {
+      "first 128 of each block": 4.921251,
+      "first 16 of each block": 4.921251,
+      "first 256 of each block": 4.921251,
+      "first 64 of each block": 4.921251
+    },
+    "profiles": [
+      {
+        "bpv": 4.916251,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "blocks": 1000,
+        "bpv": 4.919251,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 1000,
+        "bpv": 4.919251,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 1000,
+        "bpv": 4.919251,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 4.919251,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "bpv": 4.919251,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "bpv": 4.916251,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "bpv": 4.916251,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff rice"
+      },
+      {
+        "bpv": 11.938,
+        "label": "universal: 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=0 1st-diff adaptive"
+      },
+      {
+        "bpv": 5.306488,
+        "label": "universal: 2nd diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=0 2nd-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 4.921251,
+      "every 4 blocks": 4.921251,
+      "every 64 blocks": 4.921251
+    },
+    "winners": {
+      "delta": 1000,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 11.706157061570616,
+    "auto_subsets": {
+      "decimal+xor": 11.706157061570616,
+      "decimal+xor+xor_dod": 11.706157061570616
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 11.703157031570315,
+      "dod": 56.64161641616416,
+      "dod_xor": 55.13388133881339,
+      "xor": 47.139971399714,
+      "xor_dod": 55.0230402304023
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 11.703157031570315,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 11.703157031570315,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 11.703157031570315,
+        "mode": "decimal"
+      }
+    },
+    "n": 99999,
+    "name": "Blockchain-tr",
+    "probe_block_head": {
+      "first 128 of each block": 11.706157061570616,
+      "first 16 of each block": 12.07361073610736,
+      "first 256 of each block": 11.706157061570616,
+      "first 64 of each block": 12.07361073610736
+    },
+    "profiles": [
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive"
+      },
+      {
+        "blocks": 100,
+        "bpv": 11.659916599165992,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive",
+        "relearns": 34
+      },
+      {
+        "blocks": 100,
+        "bpv": 11.659916599165992,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive",
+        "relearns": 11
+      },
+      {
+        "blocks": 100,
+        "bpv": 11.659916599165992,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive",
+        "relearns": 4
+      },
+      {
+        "bpv": 11.659916599165992,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.659916599165992,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 15.649226492264923,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 11.656916569165691,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 11.706157061570616,
+      "every 4 blocks": 11.706157061570616,
+      "every 64 blocks": 11.706157061570616
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 20.403599912197265,
+    "auto_subsets": {
+      "decimal+xor": 20.403599912197265,
+      "decimal+xor+xor_dod": 20.403599912197265
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 20.40069754396234,
+      "dod": 67.99590253896247,
+      "dod_xor": 67.99590253896247,
+      "xor": 65.95244018438575,
+      "xor_dod": 66.01499963415526
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 20.40069754396234,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 20.40069754396234,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 20.40069754396234,
+        "mode": "decimal"
+      }
+    },
+    "n": 41001,
+    "name": "City-lat",
+    "probe_block_head": {
+      "first 128 of each block": 20.403599912197265,
+      "first 16 of each block": 20.403599912197265,
+      "first 256 of each block": 20.403599912197265,
+      "first 64 of each block": 20.403599912197265
+    },
+    "profiles": [
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "blocks": 42,
+        "bpv": 20.365454501109728,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 42,
+        "bpv": 20.365454501109728,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 42,
+        "bpv": 20.365454501109728,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 20.365454501109728,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 20.365454501109728,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff rice"
+      },
+      {
+        "bpv": 20.959366844711106,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 20.959366844711106,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 20.36238140533158,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 20.403770639740493,
+      "every 4 blocks": 20.403770639740493,
+      "every 64 blocks": 20.403770639740493
+    },
+    "winners": {
+      "decimal": 41,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 21.55771810443648,
+    "auto_subsets": {
+      "decimal+xor": 21.55771810443648,
+      "decimal+xor+xor_dod": 21.55771810443648
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 21.554815736201554,
+      "dod": 67.99590253896247,
+      "dod_xor": 67.99590253896247,
+      "xor": 66.0026584717446,
+      "xor_dod": 66.0173898197605
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 21.554815736201554,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 21.554815736201554,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 21.554815736201554,
+        "mode": "decimal"
+      }
+    },
+    "n": 41001,
+    "name": "City-lon",
+    "probe_block_head": {
+      "first 128 of each block": 21.55771810443648,
+      "first 16 of each block": 21.55771810443648,
+      "first 256 of each block": 21.55771810443648,
+      "first 64 of each block": 21.55771810443648
+    },
+    "profiles": [
+      {
+        "bpv": 21.524572571400697,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice"
+      },
+      {
+        "blocks": 42,
+        "bpv": 21.52764566717885,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 42,
+        "bpv": 21.52764566717885,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice",
+        "relearns": 0
+      },
+      {
+        "blocks": 42,
+        "bpv": 21.52764566717885,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice",
+        "relearns": 0
+      },
+      {
+        "bpv": 21.52764566717885,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice"
+      },
+      {
+        "bpv": 21.52764566717885,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice"
+      },
+      {
+        "bpv": 21.907124216482526,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff adaptive"
+      },
+      {
+        "bpv": 21.524572571400697,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=4 no-diff rice"
+      },
+      {
+        "bpv": 21.907124216482526,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded no-diff adaptive"
+      },
+      {
+        "bpv": 21.524572571400697,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=4 guarded no-diff rice"
+      },
+      {
+        "bpv": 21.52440184385747,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) no-diff rice"
+      },
+      {
+        "bpv": 21.52440184385747,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) no-diff rice"
+      },
+      {
+        "bpv": 22.618545889124654,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 22.618545889124654,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 21.966830077315187,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 21.52440184385747,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) no-diff rice"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 21.557888831979707,
+      "every 4 blocks": 21.557888831979707,
+      "every 64 blocks": 21.557888831979707
+    },
+    "winners": {
+      "decimal": 41,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 10.29170708292917,
+    "auto_subsets": {
+      "decimal+xor": 10.29170708292917,
+      "decimal+xor+xor_dod": 10.29170708292917
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 10.288747112528874,
+      "dod": 52.12962870371296,
+      "dod_xor": 51.6379636203638,
+      "xor": 36.802381976180236,
+      "xor_dod": 49.62520374796252
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 10.288747112528874,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 10.288747112528874,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 10.288747112528874,
+        "mode": "decimal"
+      }
+    },
+    "n": 100001,
+    "name": "Food-price",
+    "probe_block_head": {
+      "first 128 of each block": 10.29170708292917,
+      "first 16 of each block": 13.099969000309997,
+      "first 256 of each block": 10.29170708292917,
+      "first 64 of each block": 10.53720462795372
+    },
+    "profiles": [
+      {
+        "bpv": 11.593504064959351,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "blocks": 101,
+        "bpv": 10.45268547314527,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 44
+      },
+      {
+        "blocks": 101,
+        "bpv": 11.351206487935121,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 23
+      },
+      {
+        "blocks": 101,
+        "bpv": 11.37270627293727,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive",
+        "relearns": 12
+      },
+      {
+        "bpv": 11.577054229457705,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.596534034659653,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.593504064959351,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.593504064959351,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=3 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.380806191938081,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.380806191938081,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=3 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.955470445295546,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.552064479355206,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 11.552064479355206,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 13.90110098899011,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 17.956530434695654,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 13.90110098899011,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 10.291777082229178,
+      "every 4 blocks": 10.29170708292917,
+      "every 64 blocks": 10.291777082229178
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 62.13486865131349,
+    "auto_subsets": {
+      "decimal+xor": 62.13486865131349,
+      "decimal+xor+xor_dod": 62.13486865131349
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 62.13190868091319,
+      "dod": 67.9959600403996,
+      "dod_xor": 67.99328006719932,
+      "xor": 65.88252117478825,
+      "xor_dod": 66.0110198898011
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 65.88252117478825,
+        "mode": "xor"
+      },
+      "first 1000 values": {
+        "bpv": 62.13190868091319,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 62.13190868091319,
+        "mode": "decimal"
+      }
+    },
+    "n": 100001,
+    "name": "POI-lat",
+    "probe_block_head": {
+      "first 128 of each block": 65.84726152738473,
+      "first 16 of each block": 65.56244437555624,
+      "first 256 of each block": 65.88554114458856,
+      "first 64 of each block": 65.64462355376446
+    },
+    "profiles": [
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "blocks": 101,
+        "bpv": 62.11838881611184,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 101,
+        "bpv": 62.11838881611184,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 101,
+        "bpv": 62.11838881611184,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 62.11838881611184,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11838881611184,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=16 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=16 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09552904470955,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09552904470955,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09552904470955,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 70.24186758132419,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 62.11535884641154,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 62.13493865061349,
+      "every 4 blocks": 62.13486865131349,
+      "every 64 blocks": 62.13493865061349
+    },
+    "winners": {
+      "decimal": 100,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 1,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 66.00951990480095,
+    "auto_subsets": {
+      "decimal+xor": 66.01216987830122,
+      "decimal+xor+xor_dod": 66.00951990480095
+    },
+    "best_fixed": "xor",
+    "fixed_bpv": {
+      "decimal": 72.38546614533854,
+      "dod": 67.99537004629954,
+      "dod_xor": 67.9959600403996,
+      "xor": 66.00913990860091,
+      "xor_dod": 66.01835981640184
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 66.00913990860091,
+        "mode": "xor"
+      },
+      "first 1000 values": {
+        "bpv": 66.00913990860091,
+        "mode": "xor"
+      },
+      "first 10000 values": {
+        "bpv": 66.00913990860091,
+        "mode": "xor"
+      }
+    },
+    "n": 100001,
+    "name": "POI-lon",
+    "probe_block_head": {
+      "first 128 of each block": 66.00951990480095,
+      "first 16 of each block": 66.00954990450096,
+      "first 256 of each block": 66.00951990480095,
+      "first 64 of each block": 66.00951990480095
+    },
+    "profiles": [
+      {
+        "bpv": 72.34072659273407,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "blocks": 101,
+        "bpv": 72.34375656243438,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 101,
+        "bpv": 72.34375656243438,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 101,
+        "bpv": 72.34375656243438,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 72.34375656243438,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.34375656243438,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.34072659273407,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.34072659273407,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=16 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.34072659273407,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=16 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.34072659273407,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=16 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09340906590934,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09340906590934,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 74.09340906590934,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 72.63169368306318,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 79.83852161478386,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 72.63169368306318,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 66.01531984680153,
+      "every 4 blocks": 66.01566984330157,
+      "every 64 blocks": 66.01216987830122
+    },
+    "winners": {
+      "decimal": 0,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 77,
+      "xor_dod": 24
+    }
+  },
+  {
+    "auto_bpv": 10.40450319256189,
+    "auto_subsets": {
+      "decimal+xor": 10.40450319256189,
+      "decimal+xor+xor_dod": 10.40450319256189
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 10.401478660244203,
+      "dod": 54.794107762966284,
+      "dod_xor": 49.65296292147418,
+      "xor": 38.841716142041,
+      "xor_dod": 53.162428587431386
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 10.401478660244203,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 10.401478660244203,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 10.401478660244203,
+        "mode": "decimal"
+      }
+    },
+    "n": 8927,
+    "name": "SSD-bench",
+    "probe_block_head": {
+      "first 128 of each block": 10.40450319256189,
+      "first 16 of each block": 12.40427915313095,
+      "first 256 of each block": 10.40450319256189,
+      "first 64 of each block": 10.40450319256189
+    },
+    "profiles": [
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "blocks": 9,
+        "bpv": 10.357230872633583,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 3
+      },
+      {
+        "blocks": 9,
+        "bpv": 10.357230872633583,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 1
+      },
+      {
+        "blocks": 9,
+        "bpv": 10.357230872633583,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 10.357230872633583,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.357230872633583,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=1 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=1 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=1 guarded 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.921586199171054,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 14.067435868712893,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 10.354206340315896,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 10.40450319256189,
+      "every 4 blocks": 10.40450319256189,
+      "every 64 blocks": 10.40450319256189
+    },
+    "winners": {
+      "decimal": 9,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  },
+  {
+    "auto_bpv": 9.93578792341679,
+    "auto_subsets": {
+      "decimal+xor": 9.93578792341679,
+      "decimal+xor+xor_dod": 9.93578792341679
+    },
+    "best_fixed": "decimal",
+    "fixed_bpv": {
+      "decimal": 9.932253313696613,
+      "dod": 67.56023564064802,
+      "dod_xor": 67.07245949926363,
+      "xor": 63.71045655375552,
+      "xor_dod": 65.72223858615611
+    },
+    "kind": "non-time-series",
+    "lock_from_sample": {
+      "first 100 values": {
+        "bpv": 9.932253313696613,
+        "mode": "decimal"
+      },
+      "first 1000 values": {
+        "bpv": 9.932253313696613,
+        "mode": "decimal"
+      },
+      "first 10000 values": {
+        "bpv": 9.932253313696613,
+        "mode": "decimal"
+      }
+    },
+    "n": 3395,
+    "name": "Vehicle-charge",
+    "probe_block_head": {
+      "first 128 of each block": 9.93578792341679,
+      "first 16 of each block": 9.93578792341679,
+      "first 256 of each block": 9.93578792341679,
+      "first 64 of each block": 9.93578792341679
+    },
+    "profiles": [
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned from first 10k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive"
+      },
+      {
+        "blocks": 4,
+        "bpv": 9.972017673048601,
+        "label": "guarded lock, re-learn if a block grows >5%",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 4,
+        "bpv": 9.972017673048601,
+        "label": "guarded lock, re-learn if a block grows >15%",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "blocks": 4,
+        "bpv": 9.972017673048601,
+        "label": "guarded lock, re-learn if a block grows >30%",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive",
+        "relearns": 0
+      },
+      {
+        "bpv": 9.972017673048601,
+        "label": "windowed lock, re-learn every 16 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive"
+      },
+      {
+        "bpv": 9.972017673048601,
+        "label": "windowed lock, re-learn every 64 blocks",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned from first 1k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned from first 100k (locked)",
+        "lossless_verified": true,
+        "profile": "k=2 no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned from first 1k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned from first 10k, exception guard",
+        "lossless_verified": true,
+        "profile": "k=2 guarded no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned order/coder, covering k (0/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(0/1000) no-diff adaptive"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned order/coder, covering k (10/1000)",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) no-diff adaptive"
+      },
+      {
+        "bpv": 10.039175257731959,
+        "label": "universal: covering k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=covering(10/1000) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.039175257731959,
+        "label": "universal: sampled k, 1st diff, adaptive",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff adaptive"
+      },
+      {
+        "bpv": 10.110162002945508,
+        "label": "universal: sampled k, 1st diff, rice",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) 1st-diff rice"
+      },
+      {
+        "bpv": 9.968483063328424,
+        "label": "learned order/coder, sampled k",
+        "lossless_verified": true,
+        "profile": "k=sampled(32) no-diff adaptive"
+      }
+    ],
+    "reprobe": {
+      "every 16 blocks": 9.93578792341679,
+      "every 4 blocks": 9.93578792341679,
+      "every 64 blocks": 9.93578792341679
+    },
+    "winners": {
+      "decimal": 4,
+      "dod": 0,
+      "dod_xor": 0,
+      "xor": 0,
+      "xor_dod": 0
+    }
+  }
+]

@@ -8,17 +8,26 @@ exclude_re = [
     "adaptive.rs.*replace \\| with \\^ in AdaptiveBlock::decode",
     "range.rs.*replace \\| with \\^ in RangeDecoder.*::(normalize|direct)",
     "rice.rs.*replace \\| with \\^ in RiceBlock::decode",
+    # (node << 1) | bit and (left << r) | low-r-bits: the OR'd operands never overlap.
+    "bitsplit.rs.*replace \\| with \\^ in .*BitSplit.*::(encode|decode)_block",
     # g == 1 adds a duplicate scale-1 candidate with identical costs.
     "rice.rs.*replace > with >= in RiceBlock::choose",
     # Tie-breaks between encodings of equal size: either decodes identically.
     "rice.rs.*replace < with <= in RiceBlock::choose",
     "delta.rs.*replace < with <= in .*DeltaRice.*::encode_block",
+    # (Also covers the split-candidate filter, which only compares estimates:
+    # letting an equal estimate through only costs another exact trial.)
+    "split.rs.*replace < with <= in encode_scaled",
+    # The fallback when no split width was tried; r_range is never empty.
+    "bitsplit.rs.*replace - with [+/] in choose",
     # (bits, k) pairs are never equal: each exponent is tried once.
     "decimal.rs.*replace < with <= in best_encoding",
     # Weakening the pruning bound only tries more candidates; a candidate whose
     # exceptions alone cost >= the best also pays a header, so cannot win.
     "decimal.rs.*replace > with (==|>=) in best_encoding",
     "decimal.rs.*replace \\* with [+/] in best_encoding",
+    # The one-thread / single-block shortcut: the threaded path writes the same bytes.
+    "stream.rs.*replace (== with !=|< with <=) in encode_blocks",
     # Vec capacity hint only; never affects output.
     "stream.rs.*replace \\* with [+/] in decode",
 ]

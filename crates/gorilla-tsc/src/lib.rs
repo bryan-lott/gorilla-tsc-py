@@ -14,31 +14,39 @@
 
 mod adaptive;
 mod bits;
+mod bitsplit;
 mod block;
 mod coder;
 mod decimal;
 mod delta;
+mod dict;
 mod error;
 mod pairs;
+mod profile;
 mod range;
 mod rice;
 mod scheme;
+mod split;
 mod stream;
 mod word;
 
 pub use adaptive::AdaptiveBlock;
 pub use bits::{BitReader, BitWriter};
+pub use bitsplit::BitSplit;
 pub use block::{BlockCodec, PerItem};
 pub use decimal::{DecimalRice, Scaled};
-pub use delta::{DeltaRice, Order};
+pub use dict::Dictionary;
+pub use split::DecimalSplit;
+pub use profile::{GUARD_RATIO, Profile, RECIPE_SLACK_PERCENT};
+pub use delta::{Coder, DeltaChoice, DeltaRice, Order};
 pub use coder::{BucketCoder, ResidualCoder, XorCoder};
 pub use error::DecodeError;
 pub use range::{Prob, RangeDecoder, RangeEncoder};
 pub use rice::{RiceBlock, RiceParams, Transform};
-pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, estimate};
+pub use pairs::{ESTIMATE_SAMPLE, Estimate, decode_pairs, encode_pairs, encode_pairs_with, estimate};
 pub use scheme::{DodScheme, DodXorScheme, Op, Scheme, Single, Stacked, Sub, Xor, XorDodScheme, XorScheme};
 pub use stream::{
-    CheckpointInterval, Config, ConfigError, Decoded, Encoder, Header, MAGIC, Mode, Sample, SampleType, VERSION,
+    CheckpointInterval, Codec, Config, ConfigError, Decoded, Encoder, Header, MAGIC, Mode, Sample, SampleType, Threads, VERSION,
     decode, decode_any, encode, encode_parallel, read_header,
 };
 pub use word::Word;

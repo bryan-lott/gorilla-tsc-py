@@ -4,11 +4,13 @@ Bit-level format details are tested in the Rust crate; these check that the
 bindings forward configuration faithfully and map errors to Python exceptions.
 """
 
+import re
 import struct
 
 import pytest
 
 from gorilla_tsc_py import (
+    learn_profile,
     DecodeError,
     encode,
     PairsDecoder,
@@ -23,7 +25,7 @@ from gorilla_tsc_py import (
     inspect,
 )
 
-MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"]
+MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "raw", "dictionary", "decimal_split", "bit_split", "auto"]
 
 
 # --- configuration -----------------------------------------------------------
@@ -36,7 +38,7 @@ MODES = ["xor", "dod", "xor_dod", "dod_xor", "delta", "decimal", "auto"]
         ({"precision": "f64"}, "timestamp precision must be 'int32' or 'int64' (got 'f64')"),
         ({"checkpoint_interval": 0}, "checkpoint interval must be between 1 and 4294967295 (got 0)"),
         ({"checkpoint_interval": 2**32}, "checkpoint interval must be between 1 and 4294967295 (got 4294967296)"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'bit_split', 'auto' (got 'rle')"),
     ],
 )
 def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
@@ -50,7 +52,7 @@ def test_timestamps_encoder_rejects_bad_config(kwargs, msg):
     [
         ({"precision": "f16"}, "value precision must be 'f32' or 'f64' (got 'f16')"),
         ({"precision": "int64"}, "value precision must be 'f32' or 'f64' (got 'int64')"),
-        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'auto' (got 'rle')"),
+        ({"mode": "rle"}, "mode must be one of 'xor', 'dod', 'xor_dod', 'dod_xor', 'delta', 'decimal', 'raw', 'dictionary', 'decimal_split', 'bit_split', 'auto' (got 'rle')"),
         ({"checkpoint_interval": -1}, "checkpoint interval must be between 1 and 4294967295 (got -1)"),
     ],
 )
@@ -349,8 +351,8 @@ def test_encode_infers_nothing_and_validates():
         encode([1.0], precision="int64")
     with pytest.raises(ValueError, match="^precision must be one of 'int32', 'int64', 'f32', 'f64' \\(got 'f16'\\)$"):
         encode([1.0], precision="f16")
-    with pytest.raises(ValueError, match="^threads must be at least 1$"):
-        encode([1.0], threads=0)
+    with pytest.raises(ValueError, match=r"^threads must be 0 \(all cores\) or more \(got -1\)$"):
+        encode([1.0], threads=-1)
 
 
 def test_decimal_and_auto_compress_decimal_data_far_better_than_xor():
@@ -358,3 +360,69 @@ def test_decimal_and_auto_compress_decimal_data_far_better_than_xor():
     xor = len(encode(vals, mode="xor"))
     assert len(encode(vals, mode="decimal")) * 4 < xor
     assert len(encode(vals)) * 4 < xor  # auto is the default
+
+
+def test_learn_profile_for_floats_and_ints():
+    prices = [(10_000 + i % 37) / 100 for i in range(5000)]
+    profile = learn_profile(prices[:1000])
+    assert profile.startswith("decimal:2:")
+    data = encode(prices, mode=profile)
+    assert decode(data) == prices
+    # A profile writes ordinary decimal blocks.
+    assert inspect(data)["mode"] == "decimal"
+    assert len(data) <= len(encode(prices)) * 1.1
+
+    stamps = [1_700_000_000 + 60 * i for i in range(3000)]
+    profile = learn_profile(stamps, precision="int64")
+    assert profile.startswith("delta:second:")
+    assert decode(encode(stamps, precision="int64", mode=profile)) == stamps
+
+
+def test_profile_strings_work_as_modes_everywhere():
+    enc = ValuesEncoder(mode="decimal:1:first:adaptive")
+    values = [i / 10 for i in range(500)]
+    assert ValuesDecoder(enc.encode_all(values)).decode_all() == values
+    assert estimate_val_compression(values, mode="decimal:1:first:rice")["ratio"] > 4
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "msg"),
+    [
+        ({"mode": "delta:third:rice"}, "order must be one of 'first', 'second', 'zero' (got 'third')"),
+        ({"mode": "decimal:99:first:rice"}, "decimal exponent must be within -18..=18 (got 99)"),
+        ({"mode": "delta:first"}, "profile must look like"),
+    ],
+)
+def test_bad_profiles_rejected(kwargs, msg):
+    with pytest.raises(ValueError, match=re.escape(msg)):
+        encode([1.0, 2.0], **kwargs)
+
+
+def test_learn_profile_validates():
+    with pytest.raises(ValueError, match="precision must be one of"):
+        learn_profile([1.0], precision="f16")
+    with pytest.raises(ValueError, match="checkpoint interval must be between"):
+        learn_profile([1.0], checkpoint_interval=0)
+    assert learn_profile([]) == "decimal:0:first:rice"
+    assert learn_profile([], precision="int32") == "delta:first:rice"
+
+
+@pytest.mark.parametrize("threads", [0, 1, 3])
+def test_encoder_classes_take_threads_and_match_single_threaded(threads):
+    vals = [round(i * 0.37 % 50, 2) for i in range(20_011)]
+    ts = [1_700_000_000_000 + 1000 * i + i % 7 for i in range(20_011)]
+    single = ValuesEncoder().encode_all(vals)
+    enc = ValuesEncoder(threads=threads)
+    for v in vals[:5000]:
+        enc.encode_next(v)
+    assert enc.encode_all(vals[5000:]) == single
+    assert TimestampsEncoder(threads=threads).encode_all(ts) == TimestampsEncoder().encode_all(ts)
+    pairs = list(zip(ts, vals))
+    assert PairsEncoder(threads=threads).encode_all(pairs) == PairsEncoder().encode_all(pairs)
+    assert encode(vals, threads=threads) == single["encoded"]
+
+
+def test_encoder_classes_validate_threads():
+    for cls in (ValuesEncoder, TimestampsEncoder, PairsEncoder):
+        with pytest.raises(ValueError, match=r"threads must be 0 \(all cores\) or more"):
+            cls(threads=-2)

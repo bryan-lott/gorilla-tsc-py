@@ -1,11 +1,12 @@
 //! Delta coding with Rice-coded residuals, the difference order chosen per block.
 //!
-//! Block layout: first item verbatim; then, if there is more than one item, a
+//! Block layout: first item zig-zagged with a length prefix; then, if there is more than one item, a
 //! 2-bit order (`0` = first differences, `1` = second differences, `2` = the
 //! values themselves), a coder bit (`0` = [`RiceBlock`], `1` =
 //! [`AdaptiveBlock`]) and the residuals in that coder. The cheapest order and
 //! coder are chosen per block.
 
+use crate::rice::{read_prefixed, write_prefixed};
 use crate::scheme::{Op, Sub};
 use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBlock, Word};
 
@@ -13,8 +14,8 @@ use crate::{AdaptiveBlock, BitReader, BitWriter, BlockCodec, DecodeError, RiceBl
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DeltaRice;
 
-/// Which differences are Rice coded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which differences are coded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Order {
     /// `x[i] - x[i-1]`.
     First,
@@ -25,10 +26,43 @@ pub enum Order {
 }
 
 /// Residual coders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Coder {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Coder {
+    /// [`RiceBlock`]: exact per-block Rice parameters.
     Rice,
+    /// [`AdaptiveBlock`]: adaptive binary range coding.
     Adaptive,
+}
+
+impl Coder {
+    /// Both coders, in tie-break preference.
+    pub const ALL: [Self; 2] = [Self::Rice, Self::Adaptive];
+
+    /// Name used in profile strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Rice => "rice",
+            Self::Adaptive => "adaptive",
+        }
+    }
+}
+
+/// A Delta block's choices, fixed up front instead of searched per block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeltaChoice {
+    /// Which differences are coded.
+    pub order: Order,
+    /// How the residuals are coded.
+    pub coder: Coder,
+}
+
+impl DeltaChoice {
+    /// Every combination, in tie-break preference.
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        Order::ALL.into_iter().flat_map(|order| Coder::ALL.map(|coder| Self { order, coder })).collect()
+    }
 }
 
 /// Width of the order field.
@@ -36,7 +70,17 @@ const ORDER_BITS: u32 = 2;
 
 impl Order {
     /// All orders, in tie-break preference.
-    const ALL: [Self; 3] = [Self::First, Self::Second, Self::Zero];
+    pub const ALL: [Self; 3] = [Self::First, Self::Second, Self::Zero];
+
+    /// Name used in profile strings.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::First => "first",
+            Self::Second => "second",
+            Self::Zero => "zero",
+        }
+    }
 
     const fn code(self) -> u64 {
         match self {
@@ -94,10 +138,33 @@ pub fn integrate<W: Word>(first: W, residuals: &[W], order: Order, out: &mut Vec
     }
 }
 
+/// The coder bit and residuals.
+fn write_residuals<W: Word>(r: &[W], coder: Coder, out: &mut BitWriter) {
+    out.write(u64::from(coder == Coder::Adaptive), 1);
+    match coder {
+        Coder::Rice => RiceBlock::encode(r, out),
+        Coder::Adaptive => AdaptiveBlock::encode(r, out),
+    }
+}
+
+impl DeltaRice {
+    /// Encode a block with `choice` instead of searching for the cheapest one.
+    /// The block format is unchanged, so it decodes like any Delta block.
+    pub fn encode_with<W: Word>(items: &[W], choice: DeltaChoice, out: &mut BitWriter) {
+        let Some((&first, rest)) = items.split_first() else { return };
+        write_prefixed::<W>(out, first.zigzag().to_u64());
+        if rest.is_empty() {
+            return;
+        }
+        out.write(choice.order.code(), ORDER_BITS);
+        write_residuals(&residuals(items, choice.order), choice.coder, out);
+    }
+}
+
 impl<W: Word> BlockCodec<W> for DeltaRice {
     fn encode_block(&self, items: &[W], out: &mut BitWriter) {
         let Some((&first, rest)) = items.split_first() else { return };
-        out.write(first.to_u64(), W::BITS);
+        write_prefixed::<W>(out, first.zigzag().to_u64());
         if rest.is_empty() {
             return;
         }
@@ -105,13 +172,9 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         let mut best: Option<(usize, Order, BitWriter)> = None;
         for order in Order::ALL {
             let r = residuals(items, order);
-            for coder in [Coder::Rice, Coder::Adaptive] {
+            for coder in Coder::ALL {
                 let mut w = BitWriter::new();
-                w.write(u64::from(coder == Coder::Adaptive), 1);
-                match coder {
-                    Coder::Rice => RiceBlock::encode(&r, &mut w),
-                    Coder::Adaptive => AdaptiveBlock::encode(&r, &mut w),
-                }
+                write_residuals(&r, coder, &mut w);
                 if best.as_ref().is_none_or(|b| w.bit_len() < b.0) {
                     best = Some((w.bit_len(), order, w));
                 }
@@ -127,7 +190,7 @@ impl<W: Word> BlockCodec<W> for DeltaRice {
         if n == 0 {
             return Ok(());
         }
-        let first = W::from_u64_truncate(input.read(W::BITS)?);
+        let first = W::from_u64_truncate(read_prefixed::<W>(input, "first value longer than a word")?).unzigzag();
         out.push(first);
         if n == 1 {
             return Ok(());
@@ -170,9 +233,45 @@ mod tests {
         w.bit_len() as u64
     }
 
+    /// Cost of a block's first value: zig-zagged, 7-bit (u64) length prefix.
+    fn first(v: u64) -> u64 {
+        7 + u64::from(v.zigzag().bit_width())
+    }
+
     /// Cheapest coding of residuals, including the coder bit.
     fn best(r: &[u64]) -> u64 {
         1 + RiceBlock::cost(r, RiceBlock::choose(r)).min(adaptive_bits(r))
+    }
+
+    #[test]
+    fn encode_with_writes_a_normal_delta_block() {
+        let x: Vec<u64> = (0..300u64).map(|i| 1000 + i * i % 37).collect();
+        let mut best = (usize::MAX, BitWriter::new());
+        for choice in DeltaChoice::all() {
+            let mut w = BitWriter::new();
+            DeltaRice::encode_with(&x, choice, &mut w);
+            let len = w.bit_len();
+            let bytes = w.clone().finish();
+            let mut out: Vec<u64> = Vec::new();
+            DeltaRice.decode_block(x.len(), &mut BitReader::new(&bytes), &mut out).unwrap();
+            assert_eq!(out, x, "{choice:?}");
+            if len < best.0 {
+                best = (len, w);
+            }
+        }
+        // The search picks the cheapest of the same six.
+        assert_eq!(bits(&x), best.0);
+        assert_eq!(DeltaChoice::all().len(), 6);
+        assert_eq!(DeltaChoice::all()[0], DeltaChoice { order: Order::First, coder: Coder::Rice });
+        let mut w = BitWriter::new();
+        DeltaRice::encode_with(&[5u64], DeltaChoice::all()[3], &mut w);
+        assert_eq!(w.bit_len(), bits(&[5u64]));
+    }
+
+    #[test]
+    fn names() {
+        assert_eq!(Order::ALL.map(Order::name), ["first", "second", "zero"]);
+        assert_eq!(Coder::ALL.map(Coder::name), ["rice", "adaptive"]);
     }
 
     #[test]
@@ -195,9 +294,26 @@ mod tests {
     }
 
     #[test]
-    fn single_item_is_verbatim() {
-        assert_eq!(bits(&[42u64]), 64);
-        assert_eq!(bits(&[42u32]), 32);
+    fn first_value_is_zigzag_length_prefixed() {
+        // zigzag(42) = 84: 7 bits, after a 7-bit (u64) or 6-bit (u32) length.
+        assert_eq!(bits(&[42u64]), 7 + 7);
+        assert_eq!(bits(&[42u32]), 6 + 7);
+        // zigzag(-3) = 5: 3 bits.
+        assert_eq!(bits(&[(-3i64).cast_unsigned()]), 7 + 3);
+        assert_eq!(bits(&[0u64]), 7);
+        // Full-width values still fit: zigzag(i64::MIN) = u64::MAX.
+        assert_eq!(bits(&[i64::MIN.cast_unsigned()]), 7 + 64);
+        assert_eq!(round_trip(&[i64::MIN.cast_unsigned()]), [i64::MIN.cast_unsigned()]);
+        assert_eq!(round_trip(&[i32::MIN.cast_unsigned()]), [i32::MIN.cast_unsigned()]);
+    }
+
+    #[test]
+    fn overlong_first_value_length_is_corrupt() {
+        let mut w = BitWriter::new();
+        w.write(33, 6); // u32 lengths go up to 32
+        let bytes = w.finish();
+        let r = DeltaRice.decode_block(1, &mut BitReader::new(&bytes), &mut Vec::<u32>::new());
+        assert_eq!(r, Err(DecodeError::Corrupt("first value longer than a word")));
     }
 
     #[test]
@@ -205,7 +321,7 @@ mod tests {
         let cases: [&[u64]; 3] = [&[0, 5, 10, 15, 20, 25, 30], &[1, 1, 2, 1, 1, 2, 1], &[100, 90, 500, 7, 7, 7]];
         for x in cases {
             let costs = [Order::First, Order::Second, Order::Zero].map(|o| best(&residuals(x, o)));
-            assert_eq!(bits(x) as u64, 64 + 2 + costs.into_iter().min().unwrap(), "{x:?}");
+            assert_eq!(bits(x) as u64, first(x[0]) + 2 + costs.into_iter().min().unwrap(), "{x:?}");
         }
     }
 
@@ -213,9 +329,9 @@ mod tests {
     fn linear_series_costs_about_one_bit_per_value() {
         let x: Vec<u64> = (0..100).map(|i| 1000 + 7 * i).collect();
         let costs = [Order::First, Order::Second, Order::Zero].map(|o| best(&residuals(&x, o)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + costs.into_iter().min().unwrap());
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + costs.into_iter().min().unwrap());
         // 99 residuals at ~1 bit each plus a small Rice header.
-        assert!(bits(&x) <= 64 + 2 + 99 + 30, "{} bits", bits(&x));
+        assert!(bits(&x) as u64 <= first(x[0]) + 2 + 99 + 30, "{} bits", bits(&x));
     }
 
     #[test]
@@ -223,7 +339,7 @@ mod tests {
         let x: Vec<u64> = (0..100u64).map(|i| 10_000 * i + (i * 7919) % 11).collect();
         let one = best(&residuals(&x, Order::First));
         assert!(one < best(&residuals(&x, Order::Second)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + one);
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + one);
     }
 
     #[test]
@@ -242,13 +358,14 @@ mod tests {
         let zero = best(&residuals(&x, Order::Zero));
         assert!(zero < best(&residuals(&x, Order::First)));
         assert!(zero < best(&residuals(&x, Order::Second)));
-        assert_eq!(bits(&x) as u64, 64 + 2 + zero);
+        assert_eq!(bits(&x) as u64, first(x[0]) + 2 + zero);
     }
 
     #[test]
     fn unknown_order_is_corrupt() {
         let mut w = BitWriter::new();
-        w.write(1, 64);
+        w.write(1, 7); // first value: length 1, then "1" (zigzag of -1)
+        w.write(1, 1);
         w.write(3, 2);
         w.write(0, 64);
         let bytes = w.finish();
@@ -261,24 +378,31 @@ mod tests {
         let x: Vec<u64> = (0..1000u64).map(|i| 500 + u64::from(i % 97 == 0)).collect();
         let r = residuals(&x, Order::First);
         assert!(adaptive_bits(&r) < RiceBlock::cost(&r, RiceBlock::choose(&r)));
-        assert!(bits(&x) < 64 + 2 + 400, "{} bits", bits(&x));
+        assert!((bits(&x) as u64) < first(x[0]) + 2 + 400, "{} bits", bits(&x));
     }
 
     #[test]
     fn smooth_series_picks_cheaper_coder() {
         let x: Vec<u64> = (0..500u64).map(|i| 1_000_000 + i * i / 3).collect();
         for order in [Order::First, Order::Second, Order::Zero] {
-            assert!(bits(&x) as u64 <= 64 + 2 + best(&residuals(&x, order)));
+            assert!(bits(&x) as u64 <= first(x[0]) + 2 + best(&residuals(&x, order)));
         }
     }
 
     #[test]
     fn truncated_is_eof() {
         let mut w = BitWriter::new();
-        DeltaRice.encode_block(&[1u64, 2, 3], &mut w);
+        let x: Vec<u64> = (0..100).map(|i| i * i).collect();
+        DeltaRice.encode_block(&x, &mut w);
         let bytes = w.finish();
-        let mut out = Vec::<u64>::new();
-        assert_eq!(DeltaRice.decode_block(3, &mut BitReader::new(&bytes[..4]), &mut out), Err(DecodeError::UnexpectedEof));
+        for cut in [0, 1, bytes.len() / 2, bytes.len() - 1] {
+            let mut out = Vec::<u64>::new();
+            assert_eq!(
+                DeltaRice.decode_block(x.len(), &mut BitReader::new(&bytes[..cut]), &mut out),
+                Err(DecodeError::UnexpectedEof),
+                "cut at {cut}"
+            );
+        }
     }
 
     proptest! {

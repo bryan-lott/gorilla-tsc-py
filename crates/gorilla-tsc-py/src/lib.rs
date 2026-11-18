@@ -20,6 +20,15 @@ fn decode_err(e: &gt::DecodeError) -> PyErr {
     DecodeError::new_err(e.to_string())
 }
 
+/// `0` = every core, `n >= 1` = exactly `n` threads.
+fn parse_threads(threads: i64) -> Result<gt::Threads, PyErr> {
+    match usize::try_from(threads) {
+        Ok(0) => Ok(gt::Threads::available()),
+        Ok(n) => gt::Threads::new(n).ok_or_else(|| PyValueError::new_err("threads out of range")),
+        Err(_) => Err(PyValueError::new_err(format!("threads must be 0 (all cores) or more (got {threads})"))),
+    }
+}
+
 fn parse_config(mode: &str, checkpoint_interval: i64) -> Result<Config, PyErr> {
     let mode: Mode = mode.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
     let interval =
@@ -159,13 +168,14 @@ struct TimestampsEncoder {
 #[pymethods]
 impl TimestampsEncoder {
     #[new]
-    #[pyo3(signature = (precision = "int64", checkpoint_interval = 100, mode = "auto"))]
-    fn new(precision: &str, checkpoint_interval: i64, mode: &str) -> Result<Self, PyErr> {
+    #[pyo3(signature = (precision = "int64", checkpoint_interval = 100, mode = "auto", threads = 1))]
+    fn new(precision: &str, checkpoint_interval: i64, mode: &str, threads: i64) -> Result<Self, PyErr> {
         let precision = IntType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
+        let threads = parse_threads(threads)?;
         let inner = match precision {
-            IntType::I32 => TsEncoder::I32(Encoder::new(config)),
-            IntType::I64 => TsEncoder::I64(Encoder::new(config)),
+            IntType::I32 => TsEncoder::I32(Encoder::with_threads(config, threads)),
+            IntType::I64 => TsEncoder::I64(Encoder::with_threads(config, threads)),
         };
         Ok(Self { inner: Some(inner), precision, config })
     }
@@ -182,8 +192,14 @@ impl TimestampsEncoder {
     /// Append all `timestamps`, then finish the stream.
     fn encode_all<'py>(&mut self, py: Python<'py>, timestamps: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         match self.inner.as_mut().ok_or_else(finished)? {
-            TsEncoder::I32(e) => ints::<i32>(timestamps, TS_MSG)?.into_iter().for_each(|x| e.push(x)),
-            TsEncoder::I64(e) => ints::<i64>(timestamps, TS_MSG)?.into_iter().for_each(|x| e.push(x)),
+            TsEncoder::I32(e) => {
+                let v = ints::<i32>(timestamps, TS_MSG)?;
+                py.detach(|| e.extend(&v));
+            }
+            TsEncoder::I64(e) => {
+                let v = ints::<i64>(timestamps, TS_MSG)?;
+                py.detach(|| e.extend(&v));
+            }
         }
         self.finish(py)
     }
@@ -253,13 +269,14 @@ struct ValuesEncoder {
 #[pymethods]
 impl ValuesEncoder {
     #[new]
-    #[pyo3(signature = (precision = "f64", mode = "auto", checkpoint_interval = 100))]
-    fn new(precision: &str, mode: &str, checkpoint_interval: i64) -> Result<Self, PyErr> {
+    #[pyo3(signature = (precision = "f64", mode = "auto", checkpoint_interval = 100, threads = 1))]
+    fn new(precision: &str, mode: &str, checkpoint_interval: i64, threads: i64) -> Result<Self, PyErr> {
         let precision = FloatType::parse(precision)?;
         let config = parse_config(mode, checkpoint_interval)?;
+        let threads = parse_threads(threads)?;
         let inner = match precision {
-            FloatType::F32 => ValEncoder::F32(Encoder::new(config)),
-            FloatType::F64 => ValEncoder::F64(Encoder::new(config)),
+            FloatType::F32 => ValEncoder::F32(Encoder::with_threads(config, threads)),
+            FloatType::F64 => ValEncoder::F64(Encoder::with_threads(config, threads)),
         };
         Ok(Self { inner: Some(inner), precision, config })
     }
@@ -278,8 +295,11 @@ impl ValuesEncoder {
     fn encode_all<'py>(&mut self, py: Python<'py>, values: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         let v = floats(values, VAL_MSG)?;
         match self.inner.as_mut().ok_or_else(finished)? {
-            ValEncoder::F32(e) => v.into_iter().for_each(|x| e.push(to_f32(x))),
-            ValEncoder::F64(e) => v.into_iter().for_each(|x| e.push(x)),
+            ValEncoder::F32(e) => {
+                let v: Vec<f32> = v.into_iter().map(to_f32).collect();
+                py.detach(|| e.extend(&v));
+            }
+            ValEncoder::F64(e) => py.detach(|| e.extend(&v)),
         }
         self.finish(py)
     }
@@ -322,6 +342,7 @@ struct PairsEncoder {
     val_precision: FloatType,
     ts_config: Config,
     val_config: Config,
+    threads: gt::Threads,
 }
 
 fn extract_pairs(pairs: &Bound<'_, PyAny>) -> Result<Vec<(i64, f64)>, PyErr> {
@@ -358,7 +379,7 @@ impl PairsEncoder {
     #[new]
     #[pyo3(signature = (
         ts_precision = "int64", val_precision = "f64", val_mode = "auto",
-        checkpoint_interval = 100, ts_mode = "auto",
+        checkpoint_interval = 100, ts_mode = "auto", threads = 1,
     ))]
     fn new(
         ts_precision: &str,
@@ -366,23 +387,34 @@ impl PairsEncoder {
         val_mode: &str,
         checkpoint_interval: i64,
         ts_mode: &str,
+        threads: i64,
     ) -> Result<Self, PyErr> {
         Ok(Self {
             ts_precision: IntType::parse(ts_precision)?,
             val_precision: FloatType::parse(val_precision)?,
             ts_config: parse_config(ts_mode, checkpoint_interval)?,
             val_config: parse_config(val_mode, checkpoint_interval)?,
+            threads: parse_threads(threads)?,
         })
     }
 
     fn encode_all<'py>(&self, py: Python<'py>, pairs: &Bound<'py, PyAny>) -> Result<Bound<'py, PyDict>, PyErr> {
         let pairs = extract_pairs(pairs)?;
-        let (tc, vc) = (self.ts_config, self.val_config);
+        let (tc, vc, th) = (self.ts_config, self.val_config, self.threads);
         let (ts, vals) = match (self.ts_precision, self.val_precision) {
-            (IntType::I64, FloatType::F64) => gt::encode_pairs(&pairs, tc, vc),
-            (IntType::I64, FloatType::F32) => gt::encode_pairs(&narrow_val(&pairs), tc, vc),
-            (IntType::I32, FloatType::F64) => gt::encode_pairs(&narrow_ts(&pairs)?, tc, vc),
-            (IntType::I32, FloatType::F32) => gt::encode_pairs(&narrow_val(&narrow_ts(&pairs)?), tc, vc),
+            (IntType::I64, FloatType::F64) => py.detach(|| gt::encode_pairs_with(&pairs, tc, vc, th)),
+            (IntType::I64, FloatType::F32) => {
+                let p = narrow_val(&pairs);
+                py.detach(|| gt::encode_pairs_with(&p, tc, vc, th))
+            }
+            (IntType::I32, FloatType::F64) => {
+                let p = narrow_ts(&pairs)?;
+                py.detach(|| gt::encode_pairs_with(&p, tc, vc, th))
+            }
+            (IntType::I32, FloatType::F32) => {
+                let p = narrow_val(&narrow_ts(&pairs)?);
+                py.detach(|| gt::encode_pairs_with(&p, tc, vc, th))
+            }
         };
         let d = PyDict::new(py);
         d.set_item("encoded_ts", PyBytes::new(py, &ts))?;
@@ -484,10 +516,7 @@ fn encode<'py>(
     threads: i64,
 ) -> Result<Bound<'py, PyBytes>, PyErr> {
     let config = parse_config(mode, checkpoint_interval)?;
-    let threads = usize::try_from(threads)
-        .ok()
-        .and_then(std::num::NonZeroUsize::new)
-        .ok_or_else(|| PyValueError::new_err("threads must be at least 1"))?;
+    let threads = parse_threads(threads)?;
     let precision: SampleType = precision.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
     let bytes = match precision {
         SampleType::I32 => {
@@ -508,6 +537,25 @@ fn encode<'py>(
         }
     };
     Ok(PyBytes::new(py, &bytes))
+}
+
+/// Learn a locked profile from a sample of `values`: a mode string for
+/// `encode` and the encoders that skips auto's per-block search.
+#[pyfunction]
+#[pyo3(signature = (values, precision = "f64", checkpoint_interval = 100))]
+fn learn_profile(values: &Bound<'_, PyAny>, precision: &str, checkpoint_interval: i64) -> Result<String, PyErr> {
+    let interval = parse_config("auto", checkpoint_interval)?.checkpoint_interval;
+    let precision: SampleType = precision.parse().map_err(|e: gt::ConfigError| PyValueError::new_err(e.0))?;
+    let profile = match precision {
+        SampleType::I32 => gt::Profile::learn(&ints::<i32>(values, TS_MSG)?, interval),
+        SampleType::I64 => gt::Profile::learn(&ints::<i64>(values, TS_MSG)?, interval),
+        SampleType::F32 => {
+            let v: Vec<f32> = floats(values, VAL_MSG)?.into_iter().map(to_f32).collect();
+            gt::Profile::learn(&v, interval)
+        }
+        SampleType::F64 => gt::Profile::learn(&floats(values, VAL_MSG)?, interval),
+    };
+    Ok(profile.to_string())
 }
 
 /// Decode any stream to a list of ints or floats, as its header says.
@@ -543,5 +591,6 @@ fn _native(m: &Bound<'_, PyModule>) -> Result<(), PyErr> {
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(inspect, m)?)?;
+    m.add_function(wrap_pyfunction!(learn_profile, m)?)?;
     Ok(())
 }
