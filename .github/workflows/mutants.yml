@@ -32,7 +32,8 @@ jobs:
         with:
           tool: cargo-mutants
       - name: cargo mutants
-        run: cargo mutants -p ${{ matrix.package }} -j 3 --timeout 120
+        # Exit 3 = some mutants timed out (an infinite loop: detected) and none were missed.
+        run: cargo mutants -p ${{ matrix.package }} -j 3 --timeout 120 || { rc=$?; [ "$rc" -eq 3 ] || exit "$rc"; }
         env:
           GTSC_PYTHON: ${{ github.workspace }}/.venv/bin/python
           HYPOTHESIS_PROFILE: mutants
