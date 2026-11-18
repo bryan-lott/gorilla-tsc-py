@@ -32,8 +32,10 @@ self-describing (format version 1); streams from 0.1.0 do not decode.
   `"decimal:2:first:rice"` that fixes every per-block choice, for encoding
   roughly as small as `auto` at a multiple of its speed. Any `mode=` accepts
   one. In Rust: `Profile::learn` and `Mode::Profile`.
-- `encode()` / `decode()` / `inspect()` functions; `encode(..., threads=n)`
-  encodes blocks in parallel with identical output.
+- `encode()` / `decode()` / `inspect()` functions. `threads=n` on `encode()`
+  and on every encoder class (`0` = all cores) encodes blocks in parallel with
+  identical output; streaming encoders batch 8 blocks per thread. In Rust:
+  `Threads`, `Encoder::with_threads`, `encode_parallel`, `encode_pairs_with`.
 - `finish()` on the streaming encoders; `ts_mode` on `PairsEncoder`.
 - `DecodeError` for malformed, truncated or mismatched streams.
 - Type stubs (`_native.pyi`) and `py.typed`.

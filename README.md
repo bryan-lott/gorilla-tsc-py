@@ -7,6 +7,29 @@ Gorilla codec; the default `auto` mode now compresses the standard Gorilla/Chimp
 benchmark datasets 2–16x smaller than Gorilla, and the 22 Elf datasets 3.3x
 smaller on average.
 
+> [!IMPORTANT]
+> **`auto` is a discovery tool, not a production setting.** It searches up to
+> six codecs per block, which makes it slow to encode (about 1–8 MB/s per core).
+> For real use:
+>
+> 1. **Test compress a representative sample** of your data (10 000 values
+>    is plenty) with `learn_profile`, which runs that search and returns the
+>    best fixed recipe for the data, e.g. `"decimal:2:first:rice"`.
+> 2. **Store that string in your config** and pass it as `mode=` in production.
+>    Encoding then skips the search: typically 90–260 MB/s, with output within
+>    about 1% of `auto` on data like the sample.
+> 3. **Re-learn when the data changes shape** (a new sensor, new precision).
+>    Locked decimal profiles already re-search any block where more than 1% of
+>    the values no longer fit, so drift costs speed, not correctness or much size.
+>
+> ```python
+> profile = g.learn_profile(sample, precision="f64")  # once, offline
+> data = g.encode(values, mode=profile)               # in production
+> ```
+>
+> Decoding needs nothing: every stream records how it was encoded. If you
+> must use `auto`, pass `threads=0` to use every core (see below).
+
 ## Results
 
 Bits per value (lower is better) on the datasets used by the Gorilla and Chimp
@@ -60,8 +83,21 @@ up to six codecs per block, each searching its own settings) and decodes at
 70–330 MB/s; the Gorilla modes encode at 390–860 MB/s. A locked profile skips
 the search: Delta/Decimal recipes encode at 90–260 MB/s, and a profile only
 falls back to a slower fixed codec when that is more than 1% smaller on the
-sample. `encode_parallel` / `encode(..., threads=n)` splits blocks across
-threads and produces identical bytes.
+sample. Blocks are independent, so encoding parallelises across them with
+byte-identical output: `encode(..., threads=n)` and the encoder classes'
+`threads=` (`0` = every core; default `1`), or `Encoder::with_threads` /
+`encode_parallel` in Rust. Streaming encoders buffer 8 blocks per thread and
+then encode the batch in parallel. `auto` on 100 000 Elf values:
+
+| dataset | 1 thread | 2 | 4 | 6 | 12 (hyperthreads) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Basel-temp | 1.2 MB/s | 2.3 | 4.3 | 4.6 | 6.9 |
+| City-temp | 4.9 | 8.9 | 16.7 | 20.0 | 25.4 |
+| POI-lat | 0.9 | 1.8 | 3.2 | 4.1 | 5.2 |
+| Stocks-DE | 4.2 | 7.6 | 13.2 | 18.9 | 21.1 |
+
+The default stays one thread so a library call never takes every core
+of a shared server unasked.
 
 ## How it gets there
 
