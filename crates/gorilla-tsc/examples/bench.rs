@@ -1,7 +1,10 @@
 //! Compression ratio and speed on the Gorilla/Chimp benchmark datasets.
 //!
 //! `scripts/fetch-bench-data.sh`, then
-//! `cargo run --release -p gorilla-tsc --example bench [-- --quick]`.
+//! `cargo run --release -p gorilla-tsc --example bench [-- --quick | --elf | --ratios]`.
+//!
+//! `--ratios` (needs only `scripts/fetch-bench-data.sh elf`) prints exact
+//! payload sizes as JSON for `scripts/check_ratios.py`; no timing.
 //!
 //! Like the Chimp paper, values are split into independent blocks of 1000
 //! (`checkpoint_interval = 1000`) and bits/value counts the payload only.
@@ -123,44 +126,79 @@ fn report<T: Sample>(name: &str, data: &[T], reference: &str, min: Duration) {
     }
 }
 
+/// The 22 Elf datasets (`bench-data/elf`).
+const ELF_SETS: [&str; 22] = [
+    "Air-pressure",
+    "Air-sensor",
+    "Basel-temp",
+    "Basel-wind",
+    "Bird-migration",
+    "Bitcoin-price",
+    "City-temp",
+    "Dew-point-temp",
+    "IR-bio-temp",
+    "PM10-dust",
+    "Stocks-DE",
+    "Stocks-UK",
+    "Stocks-USA",
+    "Wind-Speed",
+    "Blockchain-tr",
+    "City-lat",
+    "City-lon",
+    "Food-price",
+    "POI-lat",
+    "POI-lon",
+    "SSD-bench",
+    "electric_vehicle_charging",
+];
+
+fn elf_values(dir: &Path, name: &str) -> Vec<f64> {
+    std::fs::read_to_string(dir.join("elf").join(format!("{name}.csv")))
+        .unwrap_or_else(|e| panic!("{name}: {e} (run scripts/fetch-bench-data.sh elf)"))
+        .lines()
+        .filter_map(|l| l.trim().parse().ok())
+        .collect()
+}
+
+/// Exact payload bits of `data` (whole blocks, as everywhere here) under each
+/// mode, plus a profile learned from the first 10k values, as JSON entries.
+fn ratio_entries<T: Sample>(name: &str, data: &[T], modes: &[Mode], out: &mut Vec<String>) {
+    let full = data.len() / BLOCK as usize * BLOCK as usize;
+    let data = &data[..full];
+    let interval = CheckpointInterval::new(BLOCK).unwrap();
+    let profile = Profile::learn(&data[..data.len().min(10_000)], interval);
+    for &m in modes.iter().chain(&[Mode::Profile(profile)]) {
+        let cfg = Config::new(m).with_interval(interval);
+        let mut e = Encoder::new(cfg);
+        e.extend(data);
+        let bits = e.payload_bits();
+        let label = if matches!(m, Mode::Profile(_)) { "profile".to_string() } else { m.name().to_string() };
+        out.push(format!("    \"{name} {label}\": {{\"values\": {}, \"bits\": {bits}}}", data.len()));
+    }
+}
+
+/// `--ratios`: deterministic sizes for the CI regression check.
+fn ratios(dir: &Path) {
+    let mut entries = Vec::new();
+    let floats = [Mode::Fixed(Codec::Xor), Mode::Fixed(Codec::Decimal), Mode::Auto];
+    for name in ELF_SETS {
+        ratio_entries(&format!("elf/{name}"), &elf_values(dir, name), &floats, &mut entries);
+    }
+    let ints = [Mode::Fixed(Codec::Dod), Mode::Fixed(Codec::Delta), Mode::Auto];
+    ratio_entries("synthetic/scrape-timestamps", &scrape_timestamps(200_000), &ints, &mut entries);
+    println!("{{\n  \"format\": 1,\n  \"block\": {BLOCK},\n  \"entries\": {{\n{}\n  }}\n}}", entries.join(",\n"));
+}
+
 /// One line per Elf dataset (`bench-data/elf`, see `scripts/fetch-bench-data.sh`).
 #[allow(clippy::cast_precision_loss)]
 fn elf(dir: &Path, min: Duration) {
-    const SETS: [&str; 22] = [
-        "Air-pressure",
-        "Air-sensor",
-        "Basel-temp",
-        "Basel-wind",
-        "Bird-migration",
-        "Bitcoin-price",
-        "City-temp",
-        "Dew-point-temp",
-        "IR-bio-temp",
-        "PM10-dust",
-        "Stocks-DE",
-        "Stocks-UK",
-        "Stocks-USA",
-        "Wind-Speed",
-        "Blockchain-tr",
-        "City-lat",
-        "City-lon",
-        "Food-price",
-        "POI-lat",
-        "POI-lon",
-        "SSD-bench",
-        "electric_vehicle_charging",
-    ];
     println!(
         "{:<26} {:>8} {:>8} {:>9} {:>9}   {:>8} {:>9}  learned from first 10k",
         "Elf dataset", "gorilla", "auto", "enc MB/s", "dec MB/s", "profile", "enc MB/s"
     );
     let (mut sum_g, mut sum_a, mut sum_p) = (0.0, 0.0, 0.0);
-    for name in SETS {
-        let v: Vec<f64> = std::fs::read_to_string(dir.join("elf").join(format!("{name}.csv")))
-            .unwrap_or_else(|e| panic!("{name}: {e} (run scripts/fetch-bench-data.sh)"))
-            .lines()
-            .filter_map(|l| l.trim().parse().ok())
-            .collect();
+    for name in ELF_SETS {
+        let v = elf_values(dir, name);
         let g = measure(&v, Mode::Fixed(Codec::Xor), Duration::ZERO);
         let a = measure(&v, Mode::Auto, min);
         let profile = Profile::learn(&v[..v.len().min(10_000)], CheckpointInterval::new(BLOCK).unwrap());
@@ -173,7 +211,7 @@ fn elf(dir: &Path, min: Duration) {
             g.bits_per_value, a.bits_per_value, a.enc_mbs, a.dec_mbs, p.bits_per_value, p.enc_mbs
         );
     }
-    let n = SETS.len() as f64;
+    let n = ELF_SETS.len() as f64;
     println!("{:<26} {:>8.2} {:>8.2} {:>9} {:>9}   {:>8.2}", "mean", sum_g / n, sum_a / n, "", "", sum_p / n);
 }
 
@@ -181,6 +219,10 @@ fn main() {
     let quick = std::env::args().any(|a| a == "--quick");
     let min = Duration::from_millis(if quick { 0 } else { 300 });
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench-data");
+    if std::env::args().any(|a| a == "--ratios") {
+        ratios(&dir);
+        return;
+    }
     if std::env::args().any(|a| a == "--elf") {
         elf(&dir, min);
         return;
